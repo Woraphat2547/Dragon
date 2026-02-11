@@ -49,6 +49,7 @@ let knockbackStr = 1.0;
 let executeThreshold = 0; 
 let dmgTakenMult = 1.0;
 let laserDmgMult = 1.0; 
+let fireRateMult = 1.0; // NEW: Controls projectile speed
 
 // Special Mechanics
 let unlockedShield = false;
@@ -85,9 +86,9 @@ let fearChance = 0;
 let ghostForm = false;
 let webbedTimer = 0;
 let shieldExplode = false; 
-let tailTurret = false; // New
-let discoMode = false; // New
-let gamblerMode = false; // New
+let tailTurret = false; 
+let discoMode = false; 
+let gamblerMode = false;
 let gamblerTimer = 0;
 
 // Shockwave
@@ -105,7 +106,7 @@ let wave = 0;
 let score = 0;
 let gameActive = true;
 let isPaused = false;
-let rerollAvailable = false; // New
+let canReroll = false; 
 
 // Stackable Stats
 let laserCount = 1;
@@ -126,6 +127,7 @@ let upgradeChoices = [];
 let cardBounds = [];
 let damageNumbers = [];
 let summons = [];
+let myUpgrades = []; 
 
 // --- CONFIG (Dragon Specs) ---
 let VISUAL_SCALE = 0.6 * G_SCALE;
@@ -198,7 +200,7 @@ const UPGRADES = [
     { r: 2, type: 'abil', name: "Rage Fuel", desc: "Fury lasts 5s longer", req: () => unlockedFury, run: () => furyDuration += 300 },
     { r: 2, type: 'wep', name: "Missile Silo", desc: "Fire Homing Missiles", run: () => { unlockedMissiles = true; missileCount++; } },
     { r: 2, type: 'def', name: "Second Heart", desc: "+1 Revive", run: () => reviveCount++ },
-    { r: 2, type: 'wep', name: "Plasma Beam", desc: "Lasers Pierce Armor", run: () => laserType = 'plasma' },
+    { r: 2, type: 'wep', name: "Plasma Beam", desc: "Lasers Pierce 50% Def", run: () => laserType = 'plasma' },
     { r: 2, type: 'wep', name: "Chain Lightning", desc: "15% Chance to Arc DMG", run: () => chainLightningChance = Math.min(0.8, chainLightningChance + 0.15) },
     { r: 2, type: 'wep', name: "Executioner", desc: "Kill enemies <10% HP", run: () => executeThreshold = 0.1 },
     { r: 2, type: 'wep', name: "Giga Blast", desc: "Laser Size +50%", run: () => laserWidthBase += 0.5 },
@@ -215,13 +217,18 @@ const UPGRADES = [
     { r: 3, type: 'wep', name: "Disco Inferno", desc: "Lasers do random status FX", req: () => !discoMode, run: () => { discoMode = true; } },
     { r: 3, type: 'util', name: "Bullet Time", desc: "Enemies move 20% slower (Perm)", run: () => { globalSlow *= 0.8; } },
     { r: 3, type: 'util', name: "Gambler", desc: "Stats randomize every 10s", req: () => !gamblerMode, run: () => { gamblerMode = true; } },
-    { r: 3, type: 'wep', name: "Machine Gun", desc: "Fire Rate x2, Dmg -30%", run: () => { dragonAtk *= 0.7; laserDmgMult *= 1.5; /* Handled in loop */ } },
+    { r: 3, type: 'wep', name: "Machine Gun", desc: "Fire Rate x2, Dmg -20%", run: () => { 
+        dragonAtk *= 0.8; 
+        fireRateMult *= 2.0; 
+        laserDmgMult *= 1.25; // Simulates faster tick rate for lasers
+    }},
 
     // --- LEGENDARY (Tier 4) ---
     { r: 3, type: 'wep', name: "Void Cannon", desc: "Lasers deal % Max HP Dmg", run: () => laserType = 'void' },
     { r: 3, type: 'util', name: "Time Stop", desc: "5% chance to Freeze Time", run: () => timeStopChance += 0.05 },
     { r: 3, type: 'def', name: "Titan Scales", desc: "Cap Armor at 85% & +10% Def", run: () => dragonDefPct = Math.min(CAP_DEF, dragonDefPct + 0.1) },
-    { r: 3, type: 'wep', name: "Armageddon", desc: "All Projectiles explode", run: () => orbStats.damageMult *= 2 },
+    
+    { r: 3, type: 'wep', name: "Armageddon", desc: "All Projectiles explode", run: () => orbStats.damageMult *= 1.5 },
     { r: 3, type: 'def', name: "Phoenix Soul", desc: "+3 Revives", run: () => reviveCount += 3 },
     { r: 3, type: 'wep', name: "Orbital Cannon", desc: "Orbs are massive and fast", run: () => { orbStats.size *= 2; orbStats.speed *= 2; } },
     { r: 3, type: 'abil', name: "Perma-Fury", desc: "Fury charges 2x faster", req: () => unlockedFury, run: () => furyDuration -= 100 },
@@ -272,7 +279,8 @@ class FloatingText {
         this.text = text; this.color = color; this.life = 60;
         this.size = size; this.vy = -1;
     }
-    update() { this.y += this.vy; this.life--; return this.life > 0; }
+    update() { this.y += this.vy; this.life--; return this.life > 0;
+    }
     draw() {
         ctx.globalAlpha = Math.max(0, this.life / 20);
         ctx.fillStyle = this.color; ctx.font = `bold ${this.size}px monospace`;
@@ -282,7 +290,8 @@ class FloatingText {
 }
 
 class ExpGem {
-    constructor(x, y, val) { this.x = x; this.y = y; this.val = val; }
+    constructor(x, y, val) { this.x = x; this.y = y; this.val = val;
+    }
     update() {
         const head = spine[0];
         const d = Math.hypot(head.x - this.x, head.y - this.y);
@@ -320,7 +329,7 @@ class SummonDrake {
                 let dx = this.x - s.x; let dy = this.y - s.y;
                 let d = Math.hypot(dx, dy);
                 if (d < 40) {
-                    this.x += (dx/d) * 2; this.y += (dy/d) * 2;
+                     this.x += (dx/d) * 2; this.y += (dy/d) * 2;
                 }
             }
         });
@@ -362,54 +371,13 @@ class SummonDrake {
     }
 }
 
-class SawBlade {
-    constructor(id) { this.id = id; this.angle = 0; }
-    update() {
-        this.angle += 0.2;
-        let head = spine[0];
-        let r = 150 * VISUAL_SCALE;
-        let x = head.x + Math.cos(frame * 0.05 + this.id * 2) * r;
-        let y = head.y + Math.sin(frame * 0.05 + this.id * 2) * r;
-        enemies.forEach(e => {
-            if (Math.hypot(e.x - x, e.y - y) < 40 * G_SCALE + e.radius) {
-                e.takeDamage(5 * dragonAtk);
-            }
-        });
-        ctx.save(); ctx.translate(x, y); ctx.rotate(this.angle);
-        ctx.fillStyle = "#aaa"; ctx.beginPath();
-        for(let i=0; i<8; i++) { ctx.rotate(Math.PI/4); ctx.moveTo(0,-20); ctx.lineTo(10,0); ctx.lineTo(0,20);
-        }
-        ctx.fill(); ctx.restore();
-        return false;
-    }
-    draw() {} 
-}
-
-class Drone {
-    constructor(id) { this.x = spine[0].x; this.y = spine[0].y; this.id = id; }
-    update() {
-        let head = spine[0];
-        let tx = head.x - Math.cos(frame*0.02 + this.id)*150;
-        let ty = head.y - Math.sin(frame*0.02 + this.id)*150;
-        this.x += (tx - this.x)*0.05; this.y += (ty - this.y)*0.05;
-        if (frame % 60 === 0) {
-            let nearest = enemies[0];
-            if (nearest) {
-                projectiles.push(new Projectile(this.x, this.y, Math.atan2(nearest.y-this.y, nearest.x-this.x), 5));
-            }
-        }
-        ctx.fillStyle="#0ff";
-        ctx.fillRect(this.x-5, this.y-5, 10, 10);
-        return false;
-    }
-    draw() {}
-}
-
 class Missile {
     constructor(x, y) {
-        this.x = x; this.y = y; this.life = 120;
+        this.x = x;
+        this.y = y; this.life = 120;
         this.target = enemies.length > 0 ? enemies[Math.floor(Math.random()*enemies.length)] : null;
-        this.vx = (Math.random()-0.5)*10; this.vy = (Math.random()-0.5)*10;
+        this.vx = (Math.random()-0.5)*10;
+        this.vy = (Math.random()-0.5)*10;
     }
     update() {
         this.life--;
@@ -435,18 +403,27 @@ class Missile {
 }
 
 class Mine {
-    constructor(x, y) { this.x = x; this.y = y; this.timer = 600; }
+    constructor(x, y) { this.x = x;
+        this.y = y; this.timer = 600; }
     update() {
         this.timer--;
         for (let e of enemies) {
-            if (Math.hypot(e.x - this.x, e.y - this.y) < e.radius + 20) {
+            if (Math.hypot(e.x - this.x, e.y - this.y) < e.radius + 60) { // Increased trigger radius
                 e.takeDamage(200 * dragonAtk);
-                ctx.fillStyle = "red"; ctx.beginPath(); ctx.arc(this.x, this.y, 80, 0, Math.PI*2); ctx.fill();
-                return true;
+                ctx.fillStyle = "red"; ctx.beginPath(); ctx.arc(this.x, this.y, 120, 0, Math.PI*2); ctx.fill(); // Increased blast radius
+                
+                // AoE Damage
+                enemies.forEach(subE => {
+                    if (Math.hypot(subE.x - this.x, subE.y - this.y) < 120) {
+                        subE.takeDamage(200 * dragonAtk);
+                    }
+                });
+                
+                return true; // Explode
             }
         }
         ctx.fillStyle = (frame%20<10)?"red":"#500"; ctx.beginPath();
-        ctx.arc(this.x, this.y, 5, 0, Math.PI*2); ctx.fill();
+        ctx.arc(this.x, this.y, 10, 0, Math.PI*2); ctx.fill();
         return this.timer <= 0;
     }
     draw() {}
@@ -454,17 +431,22 @@ class Mine {
 
 class EnemyProjectile {
     constructor(x, y, angle, type = 'normal') {
-        this.x = x; this.y = y;
+        this.x = x;
+        this.y = y;
         this.vx = Math.cos(angle) * (6 * G_SCALE); 
         this.vy = Math.sin(angle) * (6 * G_SCALE);
         this.radius = 8 * G_SCALE; this.type = type;
         this.dmg = 30;
         
-        if(type === 'sniper') this.dmg = 100;
-        if(type === 'boss') { this.radius = 20 * G_SCALE; this.dmg = 150; }
-        if(type === 'web') { this.radius = 12 * G_SCALE; this.dmg = 20; }
-        if(type === 'titan') { this.radius = 50 * G_SCALE; this.dmg = 300; }
-        if(type === 'spawner') { this.radius = 15 * G_SCALE; this.dmg = 0; } 
+        if(type === 'sniper') { this.dmg = 100; this.vx *= 1.5; this.vy *= 1.5; }
+        if(type === 'boss') { this.radius = 20 * G_SCALE; this.dmg = 150;
+        }
+        if(type === 'web') { this.radius = 12 * G_SCALE; this.dmg = 20;
+        }
+        if(type === 'titan') { this.radius = 50 * G_SCALE; this.dmg = 300;
+        }
+        if(type === 'spawner') { this.radius = 15 * G_SCALE; this.dmg = 0;
+        } 
     }
     update() {
         if (timeStopActive) return false;
@@ -495,7 +477,8 @@ class EnemyProjectile {
         return (this.x < -200 || this.x > width+200 || this.y < -200 || this.y > height+200);
     }
     draw() {
-        ctx.fillStyle = this.type === 'boss' ? "#ff00ff" : "#ff3300"; 
+        ctx.fillStyle = this.type === 'boss' ?
+        "#ff00ff" : "#ff3300"; 
         if(this.type === 'web') ctx.fillStyle = "#fff";
         if(this.type === 'titan') ctx.fillStyle = "#ffff00";
         if(this.type === 'spawner') ctx.fillStyle = "#00ff00";
@@ -508,42 +491,49 @@ class EnemyProjectile {
 // --- ENEMY DATA ---
 const ENEMY_DEFS = {
     // TIER 1
-    'swarmer': { hp: 50, spd: 3.5, xp: 10, col: '#ff5500', r: 12, visual: 'insect', ai: 'swarm' },
-    'fly': { hp: 30, spd: 4.5, xp: 8, col: '#ccaa00', r: 10, visual: 'insect', ai: 'strafe' },
-    'mite': { hp: 60, spd: 3.0, xp: 12, col: '#aa5500', r: 15, visual: 'bug', ai: 'zigzag' },
-    'spore': { hp: 40, spd: 2.0, xp: 15, col: '#00aa00', r: 12, visual: 'bio', ai: 'drift' },
-    'splitter': { hp: 40, spd: 2.5, xp: 15, col: '#885500', r: 18, visual: 'blob', ai: 'basic' },
-    'charger': { hp: 80, spd: 5.0, xp: 25, col: '#ff8800', r: 15, visual: 'beetle', ai: 'charge' },
-    'wasp': { hp: 25, spd: 5.5, xp: 20, col: '#ffff00', r: 8, visual: 'insect' },
-    'blob': { hp: 150, spd: 1.0, xp: 25, col: '#0055aa', r: 25, visual: 'blob' },
-    'drone': { hp: 60, spd: 4.0, xp: 18, col: '#aaaaaa', r: 14, visual: 'mech' },
+    'swarmer': { hp: 50, spd: 3.0, xp: 10, col: '#ff5500', r: 12, visual: 'insect', ai: 'swarm' }, // Reduced speed 3.5 -> 3.0
+    'fly': { hp: 30, spd: 3.5, xp: 8, col: '#ccaa00', r: 10, visual: 'insect', ai: 'strafe' }, // Reduced speed 4.5 -> 3.5
+    'mite': { hp: 60, spd: 2.5, xp: 12, col: '#aa5500', r: 15, visual: 'bug', ai: 'zigzag' }, // Reduced speed
+    'spore': { hp: 40, spd: 1.8, xp: 15, col: '#00aa00', r: 12, visual: 'bio', ai: 'drift' },
+    
+    'splitter': { hp: 40, spd: 2.0, xp: 15, col: '#885500', r: 18, visual: 'blob', ai: 'basic' },
+    'charger': { hp: 80, spd: 4.0, xp: 25, col: '#ff8800', r: 15, visual: 'beetle', ai: 'charge' },
+    'wasp': { hp: 25, spd: 3.5, xp: 20, col: '#ffff00', r: 8, visual: 'insect', ai: 'range_normal' }, 
+    'blob': { hp: 150, spd: 0.8, xp: 25, col: '#0055aa', r: 25, visual: 'blob' },
+    'drone': { hp: 60, spd: 3.0, xp: 18, col: '#aaaaaa', r: 14, visual: 'mech', ai: 'range_normal' }, 
     // TIER 2
-    'grunt': { hp: 300, spd: 1.5, xp: 40, col: '#aa0000', r: 22, visual: 'mech' },
-    'soldier': { hp: 400, spd: 1.4, xp: 50, col: '#cc0000', r: 25, visual: 'mech' },
-    'shielded': { hp: 800, spd: 1.2, xp: 70, col: '#00ffff', r: 30, visual: 'shield_mech' },
-    'lancer': { hp: 250, spd: 2.5, xp: 55, col: '#ff8800', r: 18, visual: 'spike' },
-    'zealot': { hp: 200, spd: 4.5, xp: 60, col: '#ff00ff', r: 20, visual: 'star', ai: 'kamikaze' },
-    'dasher': { hp: 200, spd: 2.0, xp: 60, col: '#00ff00', r: 18, visual: 'triangle', ai: 'dash' },
+    
+    'grunt': { hp: 300, spd: 1.2, xp: 40, col: '#aa0000', r: 22, visual: 'mech' },
+    'soldier': { hp: 400, spd: 1.1, xp: 50, col: '#cc0000', r: 25, visual: 'mech' },
+    'shielded': { hp: 800, spd: 1.0, xp: 70, col: '#00ffff', r: 30, visual: 'shield_mech' },
+    'lancer': { hp: 250, spd: 2.2, xp: 55, col: '#ff8800', r: 18, visual: 'spike' },
+    'zealot': { hp: 200, spd: 3.5, xp: 60, col: '#ff00ff', r: 20, visual: 'star', ai: 'kamikaze' }, // Reduced speed
+    'dasher': { hp: 200, spd: 1.8, xp: 60, 
+    col: '#00ff00', r: 18, visual: 'triangle', ai: 'dash' },
     // TIER 3
-    'shooter': { hp: 350, spd: 1.2, xp: 80, col: '#8800ff', r: 25, visual: 'turret', ai: 'range_normal' },
-    'sniper': { hp: 250, spd: 0.9, xp: 120, col: '#ff0088', r: 20, visual: 'cross', ai: 'range_snipe' },
-    'mortar': { hp: 500, spd: 0.8, xp: 100, col: '#444444', r: 35, visual: 'heavy_mech', ai: 'range_heavy' },
-    'hunter': { hp: 300, spd: 1.6, xp: 90, col: '#00aa44', r: 22, visual: 'stealth', ai: 'range_move' },
-    'webber': { hp: 400, spd: 1.2, xp: 100, col: '#cccccc', r: 30, visual: 'spider', ai: 'range_web' },
+    'shooter': { hp: 350, spd: 1.0, xp: 80, col: '#8800ff', r: 25, visual: 'turret', ai: 'range_normal' },
+    'sniper': { hp: 250, spd: 0.8, xp: 120, col: '#ff0088', r: 20, visual: 'cross', ai: 'range_snipe' },
+    'mortar': { hp: 500, spd: 0.7, xp: 100, col: '#444444', r: 35, visual: 'heavy_mech', ai: 'range_heavy' },
+    'hunter': { hp: 300, spd: 1.4, xp: 90, col: '#00aa44', r: 22, visual: 'stealth', ai: 'range_move' },
+    'webber': { 
+    hp: 400, spd: 1.0, xp: 100, col: '#cccccc', r: 30, visual: 'spider', ai: 'range_web' },
     // BOSSES & TIER 4
-    'glitch': { hp: 450, spd: 2.0, xp: 110, col: '#ffffff', r: 22, visual: 'glitch', ai: 'teleport' },
-    'phantom': { hp: 350, spd: 1.8, xp: 110, col: '#88aaff', r: 25, visual: 'ghost', ai: 'fade' },
-    'tank': { hp: 2000, spd: 0.8, xp: 250, col: '#222222', r: 45, visual: 'heavy_tank' },
-    'golem': { hp: 5000, spd: 0.5, xp: 600, col: '#554433', r: 60, visual: 'block' },
-    'mini_slayer': { hp: 12000, spd: 1.5, xp: 2000, col: '#aa00aa', r: 40, visual: 'boss_slayer', isBoss: true, ai: 'pounce' },
-    'boss_hydra': { hp: 25000, spd: 0.6, xp: 5000, col: '#00aa00', r: 90, visual: 'boss_hydra', isBoss: true },
-    'boss_titan': { hp: 60000, spd: 0.4, xp: 8000, col: '#aa5500', r: 120, visual: 'boss_titan', isBoss: true },
-    'boss_ufo': { hp: 30000, spd: 1.8, xp: 6000, col: '#8888ff', r: 60, visual: 'boss_ufo', isBoss: true },
+    'glitch': { hp: 450, spd: 1.8, xp: 110, col: '#ffffff', r: 22, visual: 'glitch', ai: 'teleport' },
+    'phantom': { hp: 350, spd: 1.6, xp: 110, col: '#88aaff', r: 25, visual: 'ghost', ai: 'fade' },
+    'tank': { hp: 2000, spd: 0.6, xp: 250, col: '#222222', r: 45, visual: 'heavy_tank' },
+    'golem': { hp: 5000, spd: 0.4, xp: 600, col: '#554433', r: 60, visual: 'block' },
+  
+    'mini_slayer': { hp: 12000, spd: 1.2, xp: 2000, col: '#aa00aa', r: 40, visual: 'boss_slayer', isBoss: true, ai: 'pounce' },
+    'boss_hydra': { hp: 25000, spd: 0.5, xp: 5000, col: '#00aa00', r: 90, visual: 'boss_hydra', isBoss: true, ai: 'range_heavy' },
+    'boss_titan': { hp: 60000, spd: 0.3, xp: 8000, col: '#aa5500', r: 120, visual: 'boss_titan', isBoss: true, ai: 'swarm' },
+    'boss_ufo': { hp: 30000, spd: 1.5, xp: 6000, col: '#8888ff', r: 60, visual: 'boss_ufo', isBoss: true, ai: 'range_move' },
+    'mini_mecha': { hp: 15000, spd: 1.0, xp: 3000, col: '#555555', r: 50, visual: 'mini_mecha', isBoss: true, ai: 'range_normal' }
 };
 
 class Enemy {
     constructor(type, waveNum) {
-        let def = ENEMY_DEFS[type] || ENEMY_DEFS['swarmer'];
+        let def = ENEMY_DEFS[type] ||
+        ENEMY_DEFS['swarmer'];
         const side = Math.random() > 0.5;
         this.x = side ? -100 : width + 100;
         this.y = Math.random() * height;
@@ -579,15 +569,21 @@ class Enemy {
             this.eliteMod = mods[Math.floor(Math.random() * mods.length)];
             this.xp *= 3;
         }
-        if (this.eliteMod === 'GIANT') { this.hp *= 2; this.radius *= 1.5; this.maxHp = this.hp; }
-        if (this.eliteMod === 'AEGIS') { this.shield = this.hp * 0.5; }
+        if (this.eliteMod === 'GIANT') { this.hp *= 2;
+        this.radius *= 1.5; this.maxHp = this.hp; }
+        if (this.eliteMod === 'AEGIS') { this.shield = this.hp * 0.5;
+        }
     }
 
     update() {
         this.animFrame++;
         if (timeStopActive) return;
+        
+        // --- DOT LOGIC (Only runs periodically) ---
         if (this.poisonTimer > 0) {
-            if (this.poisonTimer % 20 === 0) this.takeDamage(Math.max(5, poisonDmg * 0.5), true);
+            if (this.poisonTimer % 30 === 0) { // Slower tick for clear DoT
+                this.takeDamage(Math.max(5, poisonDmg * 0.5), true, 'poison');
+            }
             this.poisonTimer--;
         }
         if (this.eliteMod === 'REGEN' && frame % 60 === 0) {
@@ -597,8 +593,31 @@ class Enemy {
         const head = spine[0];
         let targetX = head.x; let targetY = head.y;
         const dist = Math.hypot(targetX - this.x, targetY - this.y);
-        const angleToPlayer = Math.atan2(targetY - this.y, targetX - this.x);
         
+        // --- SEPARATION (PREVENT STACKING) ---
+        enemies.forEach(other => {
+            if (other === this) return;
+            let dx = this.x - other.x;
+            let dy = this.y - other.y;
+            let d = Math.hypot(dx, dy);
+            let minDist = this.radius + other.radius + 10;
+            if (d < minDist && d > 0) {
+                let push = (minDist - d) * 0.05; // Gentle push
+                this.x += (dx / d) * push;
+                this.y += (dy / d) * push;
+            }
+        });
+
+        // --- BLACK HOLE LOGIC ---
+        if (reactorDmg > 0 && reactorRadiusMult > 1.0) {
+            let pullRange = 500 * G_SCALE * reactorRadiusMult;
+            if (dist < pullRange) {
+                this.x += (targetX - this.x) * 0.02 * reactorRadiusMult;
+                this.y += (targetY - this.y) * 0.02 * reactorRadiusMult;
+            }
+        }
+
+        const angleToPlayer = Math.atan2(targetY - this.y, targetX - this.x);
         let angleDiff = angleToPlayer - this.angle;
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
@@ -615,30 +634,27 @@ class Enemy {
         if (this.eliteMod === 'WARP' && frame % 120 === 0 && Math.random() < 0.3) {
             this.x += (Math.random()-0.5)*300;
             this.y += (Math.random()-0.5)*300;
-            ctx.fillStyle = "white"; ctx.fillRect(this.x-10, this.y-10, 20, 20); 
+            ctx.fillStyle = "white"; ctx.fillRect(this.x-10, this.y-10, 20, 20);
         }
 
         // AGGRESSIVE AI LOGIC
         switch(this.ai) {
             case 'swarm':
-                // Always move forward, accelerate when close
                 if (dist < 300 * G_SCALE) moveSpeed *= 1.5;
                 break;
             case 'strafe':
-                // Move towards player + sine wave strafe
                 mx = Math.cos(angleToPlayer + Math.sin(frame * 0.1) * 0.5);
                 my = Math.sin(angleToPlayer + Math.sin(frame * 0.1) * 0.5);
                 break;
             case 'zigzag':
-                // Sharp turns but general direction is player
                 let zig = (frame % 30 < 15) ? 0.5 : -0.5;
                 mx = Math.cos(angleToPlayer + zig);
                 my = Math.sin(angleToPlayer + zig);
                 break;
             case 'drift':
                 if (dist > 800 * G_SCALE) {
-                    // Force aggression if too far
-                    mx = Math.cos(angleToPlayer); my = Math.sin(angleToPlayer);
+                    mx = Math.cos(angleToPlayer);
+                    my = Math.sin(angleToPlayer);
                 } else {
                     mx = Math.cos(this.angle + Math.sin(frame*0.05));
                     my = Math.sin(this.angle + Math.sin(frame*0.05));
@@ -646,24 +662,30 @@ class Enemy {
                 break;
             case 'charge': 
                 if (this.state === 0) { // Aim
-                    mx = Math.cos(angleToPlayer); my = Math.sin(angleToPlayer);
+                    mx = Math.cos(angleToPlayer);
+                    my = Math.sin(angleToPlayer);
                     moveSpeed *= 0.5;
-                    if (this.timer > 60) { this.state = 1; this.timer = 0; }
+                    if (this.timer > 60) { this.state = 1; this.timer = 0;
+                    }
                 } else { // Dash
                     moveSpeed *= 4.0;
-                    if (this.timer > 30) { this.state = 0; this.timer = 0; }
+                    if (this.timer > 30) { this.state = 0; this.timer = 0;
+                    }
                 }
                 break;
             case 'pounce': 
                 if (this.state === 0) { // Stalk
                     moveSpeed *= 0.8;
-                    if (this.timer > 120) { this.state = 1; this.timer = 0; }
+                    if (this.timer > 120) { this.state = 1; this.timer = 0;
+                    }
                 } else if (this.state === 1) { // Freeze/Charge
                     moveSpeed = 0;
-                    if (this.timer > 40) { this.state = 2; this.timer = 0; }
+                    if (this.timer > 40) { this.state = 2; this.timer = 0;
+                    }
                 } else if (this.state === 2) { // Dash
                     moveSpeed *= 6;
-                    if (this.timer > 15) { this.state = 0; this.timer = 0; }
+                    if (this.timer > 15) { this.state = 0; this.timer = 0;
+                    }
                 }
                 break;
             case 'thrower': 
@@ -675,14 +697,17 @@ class Enemy {
                 break;
             case 'dash':
                 if (this.state === 0) { 
-                    if (this.timer > 100) { this.state = 1; this.timer = 0; }
+                    if (this.timer > 100) { this.state = 1;
+                    this.timer = 0; }
                 } else if (this.state === 1) { 
                     moveSpeed = 0;
                     this.x += (Math.random()-0.5)*2; 
-                    if (this.timer > 40) { this.state = 2; this.timer = 0; }
+                    if (this.timer > 40) { this.state = 2; this.timer = 0;
+                    }
                 } else if (this.state === 2) { 
                     moveSpeed *= 8;
-                    if (this.timer > 15) { this.state = 0; this.timer = 0; }
+                    if (this.timer > 15) { this.state = 0; this.timer = 0;
+                    }
                 }
                 break;
             case 'range_normal':
@@ -691,20 +716,31 @@ class Enemy {
             case 'range_web':
             case 'range_move':
                 let keepDist = (this.ai === 'range_snipe' ? 600 : 350) * G_SCALE;
-                if (dist > keepDist + 50) { /* Forward */ } 
-                else if (dist < keepDist - 50) { mx *= -1; my *= -1; } 
-                else { 
-                    // Orbit
-                    mx = Math.cos(angleToPlayer + Math.PI/2);
-                    my = Math.sin(angleToPlayer + Math.PI/2);
+                let retreatDist = keepDist - 100 * G_SCALE;
+                if (dist < retreatDist) {
+                    mx = Math.cos(angleToPlayer + Math.PI); 
+                    my = Math.sin(angleToPlayer + Math.PI);
+                    moveSpeed *= 1.2; 
+                } else if (dist > keepDist + 100) {
+                    mx = Math.cos(angleToPlayer);
+                    my = Math.sin(angleToPlayer);
+                } else {
+                    let strafeDir = (frame % 200 < 100) ? 1 : -1;
+                    mx = Math.cos(angleToPlayer + (Math.PI/2 * strafeDir));
+                    my = Math.sin(angleToPlayer + (Math.PI/2 * strafeDir));
                 }
                 
                 let fireRate = this.ai === 'range_snipe' ? 220 : 120;
                 if (this.type === 'boss_ufo') fireRate = 180;
+                
                 if (this.timer > fireRate) {
                     let pType = this.ai === 'range_snipe' ? 'sniper' : (this.ai === 'range_web' ? 'web' : 'normal');
                     if (this.type === 'boss_ufo') pType = 'boss';
-                    enemyProjectiles.push(new EnemyProjectile(this.x, this.y, angleToPlayer, pType));
+                    let aimAngle = angleToPlayer;
+                    if (this.ai === 'range_snipe' || this.isBoss) {
+                        aimAngle += (Math.random()-0.5) * 0.1;
+                    }
+                    enemyProjectiles.push(new EnemyProjectile(this.x, this.y, aimAngle, pType));
                     this.timer = 0;
                 }
                 break;
@@ -719,34 +755,33 @@ class Enemy {
 
         this.x += mx * moveSpeed;
         this.y += my * moveSpeed;
-
-        // Leash logic
         if (dist > 2500 * G_SCALE) {
             this.x += (targetX - this.x) * 0.05;
             this.y += (targetY - this.y) * 0.05;
         }
 
-        // Procedural Legs Update
         if (this.legs.length > 0) {
             this.legs.forEach((leg, i) => {
                 let offset = (i % 2 === 0 ? 1 : -1) * (i < 2 ? 0.5 : 1.0);
-                let legAngle = this.angle + (i%2===0 ? 1.5 : -1.5) + (i > 1 ? (i%2===0?0.5:-0.5) : 0);
+                let legAngle = this.angle 
+                + (i%2===0 ? 1.5 : -1.5) + (i > 1 ? (i%2===0?0.5:-0.5) : 0);
                 let idealX = this.x + Math.cos(legAngle) * (this.radius * 2);
                 let idealY = this.y + Math.sin(legAngle) * (this.radius * 2);
                 
-                if (Math.hypot(idealX - leg.x, idealY - leg.y) > this.radius * 1.5 && leg.step <= 0) {
+                if (Math.hypot(idealX - leg.x, idealY 
+                - leg.y) > this.radius * 1.5 && leg.step <= 0) {
                     leg.step = 1; leg.tX = idealX; leg.tY = idealY;
                 }
                 if (leg.step > 0) {
                     leg.x += (leg.tX - leg.x) * 0.2; leg.y += (leg.tY - leg.y) * 0.2;
                     leg.step -= 0.1;
                 } else {
-                    leg.x = idealX; leg.y = idealY; // Snap if drift
+                    leg.x = idealX; leg.y = idealY; 
                 }
+        
             });
         }
 
-        // Collision & Damage
         let hit = false;
         let points = [0, Math.floor(spine.length/2), spine.length-1];
         
@@ -771,18 +806,19 @@ class Enemy {
                 this.hp = 0; 
                 for(let k=0; k<8; k++) enemyProjectiles.push(new EnemyProjectile(this.x, this.y, k * (Math.PI/4)));
             }
-            takeDamage(baseDmg);
+            this.takeDamage(baseDmg, false);
             if(thornsDmg > 0) this.takeDamage(thornsDmg, false);
         }
         
         if (reactorDmg > 0 && dist < 200 * VISUAL_SCALE * reactorRadiusMult) {
-             if (frame % 10 === 0) {
-                 this.takeDamage(reactorDmg * 2, true);
-                this.isBurned = true; 
+             if (frame % 20 === 0) { // Slower reactor tick
+                 this.takeDamage(reactorDmg * 2, true, 'burn');
+                 this.isBurned = true; 
              }
-        } else { this.isBurned = false; }
+        } else { this.isBurned = false;
+        }
         
-        if (auraFireDmg > 0 && dist < 250 && frame % 10 === 0) this.takeDamage(auraFireDmg * 2, true);
+        if (auraFireDmg > 0 && dist < 250 && frame % 20 === 0) this.takeDamage(auraFireDmg * 2, true, 'burn');
         if (mouse.down || autoTurretCount > 0) {
             if (mouse.down) {
                 checkLaserHit(this, head, laserCount, 0);
@@ -798,10 +834,12 @@ class Enemy {
         }
     }
 
-    takeDamage(amount, isDoT = false) {
+    takeDamage(amount, isDoT = false, type = 'normal') {
         if (this.eliteMod === 'AEGIS' && Math.random() < 0.5) { 
-            damageNumbers.push(new FloatingText(this.x, this.y, "BLOCK", "#fff", 20));
-            return;
+            if (laserType !== 'plasma' || Math.random() < 0.5) {
+                damageNumbers.push(new FloatingText(this.x, this.y, "BLOCK", "#fff", 20));
+                return;
+            }
         }
 
         if (furyActive) amount *= 2;
@@ -827,16 +865,25 @@ class Enemy {
             damageNumbers.push(new FloatingText(this.x, this.y, "EXECUTE", "#ff0000", 30));
         }
 
-        if (!isDoT || frame % 10 === 0) {
+        // VISUALS FOR DMG / DOT
+        if (!isDoT || frame % 30 === 0) {
             let color = isCrit ? "#ffcc00" : (this.eliteMod ? "#ff00ff" : "#fff");
             let size = isCrit ? 24 : 14;
-            if (isDoT) { color = "#00ff00"; size = 16; } 
+            
+            // DoT Specific Styling
+            if (isDoT) { 
+                size = 12; // Smaller
+                if (type === 'poison') color = "#00ff00";
+                else if (type === 'burn') color = "#ff5500";
+                else color = "#aaa";
+            } 
+            
             if (amount > 1) damageNumbers.push(new FloatingText(this.x, this.y, Math.floor(amount), color, size));
         }
         
         if (this.type === 'spore' && this.hp <= 0) {
              ctx.fillStyle="rgba(0,255,0,0.5)";
-            ctx.beginPath(); ctx.arc(this.x,this.y, 60, 0, Math.PI*2); ctx.fill();
+             ctx.beginPath(); ctx.arc(this.x,this.y, 60, 0, Math.PI*2); ctx.fill();
         }
         if (this.type === 'splitter' && this.hp <= 0) {
              for(let k=0; k<2; k++) {
@@ -854,7 +901,8 @@ class Enemy {
         ctx.scale(G_SCALE, G_SCALE); 
 
         // Health Bar
-        const barW = this.isBoss ? 100 : 40;
+        const barW = this.isBoss ?
+        100 : 40;
         if (!this.isBoss) { 
             ctx.fillStyle = "red";
             ctx.fillRect(-barW/2, -this.radius/G_SCALE - 15, barW, 4);
@@ -863,60 +911,88 @@ class Enemy {
         if (this.eliteMod) {
             ctx.strokeStyle = "#ff00ff";
             ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0,0,this.radius/G_SCALE + 5, 0, Math.PI*2); ctx.stroke();
+            // Elite Aura
+            ctx.fillStyle = "rgba(255, 0, 255, 0.2)";
+            ctx.beginPath(); ctx.arc(0, 0, this.radius/G_SCALE + 15, 0, Math.PI*2); ctx.fill();
         }
 
         ctx.rotate(this.angle);
-
         // Visuals
         if (this.poisonTimer > 0) ctx.fillStyle = "#00ff00";
         else if (this.isBurned) ctx.fillStyle = "#ffaa00";
         else ctx.fillStyle = this.eliteMod ? "#ffccff" : this.col;
         
         let r = this.radius / G_SCALE;
-        
         // Draw Legs for Walkers
         if (this.legs.length > 0) {
-            ctx.strokeStyle = "#444"; ctx.lineWidth = 4;
+            ctx.strokeStyle = "#444";
+            ctx.lineWidth = 4;
             this.legs.forEach(l => {
-                // Transform leg world coords back to local
                 let dx = l.x - this.x; let dy = l.y - this.y;
                 let lx = dx * Math.cos(-this.angle) - dy * Math.sin(-this.angle);
-                let ly = dx * Math.sin(-this.angle) + dy * Math.cos(-this.angle);
-                // Scale adjust
+                let ly = dx 
+                * Math.sin(-this.angle) + dy * Math.cos(-this.angle);
                 lx /= G_SCALE; ly /= G_SCALE;
-                
                 ctx.beginPath(); ctx.moveTo(0,0); 
                 ctx.lineTo(lx/2, ly/2); ctx.lineTo(lx, ly); ctx.stroke();
             });
         }
 
         switch(this.visual) {
+            case 'boss_hydra': // New Hydra Visual
+                ctx.fillStyle = "#005500";
+                ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
+                // 3 Heads
+                for(let i=-1; i<=1; i++) {
+                    ctx.save();
+                    ctx.rotate(i * 0.5 + Math.sin(frame*0.1)*0.2);
+                    ctx.fillStyle = "#00aa00";
+                    ctx.beginPath(); ctx.ellipse(r, 0, r*0.8, r*0.4, 0, 0, Math.PI*2); ctx.fill();
+                    ctx.fillStyle = "red"; ctx.beginPath(); ctx.arc(r*1.5, -5, 3, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(r*1.5, 5, 3, 0, Math.PI*2); ctx.fill();
+                    ctx.restore();
+                }
+                break;
+                
+            case 'boss_titan': // New Titan Visual
+                ctx.fillStyle = "#332211";
+                ctx.fillRect(-r, -r, r*2, r*2);
+                ctx.strokeStyle = "gold"; ctx.lineWidth = 5; ctx.strokeRect(-r, -r, r*2, r*2);
+                ctx.fillStyle = "red"; ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI*2); ctx.fill();
+                break;
+
+            case 'mini_mecha':
+                ctx.fillStyle = "#444";
+                ctx.beginPath(); ctx.moveTo(r,0); ctx.lineTo(-r,r); ctx.lineTo(-r,-r); ctx.fill();
+                ctx.fillStyle = "cyan"; ctx.beginPath(); ctx.arc(0,0, r*0.4, 0, Math.PI*2); ctx.fill();
+                break;
+
             case 'insect': // Swarmer, Wasp
                 let wingFlap = Math.sin(this.animFrame * 0.5) * 10;
                 ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
                 ctx.beginPath(); ctx.ellipse(-5, -r/2, r*1.2, r/2, Math.PI/4 + wingFlap*0.05, 0, Math.PI*2); ctx.fill();
-                ctx.beginPath(); ctx.ellipse(-5, r/2, r*1.2, r/2, -Math.PI/4 - wingFlap*0.05, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(-5, r/2, r*1.2, r/2, -Math.PI/4 - wingFlap*0.05, 0, Math.PI*2); ctx.fill();
                 ctx.fillStyle = this.col;
-                ctx.beginPath(); ctx.ellipse(0, 0, r, r*0.6, 0, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(0, 0, r, r*0.6, 0, 0, Math.PI*2); ctx.fill();
                 ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(r*0.6, 0, r*0.3, 0, Math.PI*2); ctx.fill();
                 break;
-
             case 'beetle': // Charger
                 ctx.fillStyle = this.col;
                 ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
                 ctx.strokeStyle = "#000"; ctx.lineWidth = 2;
                 ctx.beginPath(); ctx.moveTo(-r, 0); ctx.lineTo(r, 0); ctx.stroke();
-                ctx.beginPath(); ctx.moveTo(r*0.8, -r*0.4); ctx.lineTo(r*1.5, -r*0.2); ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(r*0.8, -r*0.4); ctx.lineTo(r*1.5, -r*0.2); ctx.stroke();
                 ctx.beginPath(); ctx.moveTo(r*0.8, r*0.4); ctx.lineTo(r*1.5, r*0.2); ctx.stroke();
                 break;
-            
             case 'mech': // Grunt, Drone
                 ctx.fillStyle = "#444";
                 ctx.fillRect(-r, -r, r*2, r*2);
                 ctx.fillStyle = this.col;
                 ctx.fillRect(-r*0.6, -r*0.6, r*1.2, r*1.2);
                 break;
-
             case 'turret': // Shooter
                 ctx.fillStyle = "#333";
                 ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r, r); ctx.lineTo(-r, -r); ctx.fill();
@@ -931,7 +1007,8 @@ class Enemy {
                 ctx.fillStyle = this.col;
                 ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r, r); ctx.lineTo(-r*0.5, 0); ctx.lineTo(-r, -r); ctx.fill();
                 ctx.strokeStyle = "#fff"; ctx.lineWidth = 3;
-                ctx.beginPath(); ctx.moveTo(-r, 0); ctx.lineTo(r*0.8, 0); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(-r, 0);
+                ctx.lineTo(r*0.8, 0); ctx.stroke();
                 break;
 
             case 'boss_ufo': // Boss UFO
@@ -941,11 +1018,11 @@ class Enemy {
                 ctx.beginPath(); ctx.arc(0, -r*0.2, r*0.5, Math.PI, 0); ctx.fill();
                 let lOffset = this.animFrame * 0.2;
                 for(let i=0; i<3; i++) {
-                    ctx.fillStyle = (Math.floor(this.animFrame/10 + i)%3===0) ? "red" : "#300";
+                    ctx.fillStyle = (Math.floor(this.animFrame/10 + i)%3===0) ?
+                    "red" : "#300";
                     ctx.beginPath(); ctx.arc(-r*0.6 + i*r*0.6, r*0.1, 5, 0, Math.PI*2); ctx.fill();
                 }
                 break;
-
             default: 
                 ctx.fillStyle = this.col;
                 ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
@@ -958,10 +1035,14 @@ class Enemy {
 
 class Projectile {
     constructor(x, y, angle, speed) {
-        this.x = x; this.y = y; 
+        this.x = x;
+        this.y = y; 
         this.vx = Math.cos(angle)*speed; this.vy = Math.sin(angle)*speed;
         this.pen = orbStats.pen;
         this.dmg = 40 * dragonAtk * orbStats.damageMult;
+        // Armageddon Support:
+        this.explodes = (orbStats.damageMult >= 1.5 && UPGRADES.some(u => u.name === "Armageddon" && myUpgrades.includes(u)));
+        this.ricochet = ricochetCount; 
     }
     update() {
         this.x += this.vx; this.y += this.vy;
@@ -969,6 +1050,30 @@ class Projectile {
             let e = enemies[i];
             if (Math.hypot(this.x - e.x, this.y - e.y) < e.radius + (15 * G_SCALE)) {
                 e.takeDamage(this.dmg);
+                
+                // --- ARMAGEDDON EXPLOSION ---
+                if (this.explodes) {
+                    ctx.fillStyle = "rgba(255, 100, 0, 0.5)";
+                    ctx.beginPath(); ctx.arc(this.x, this.y, 100 * G_SCALE, 0, Math.PI*2); ctx.fill();
+                    enemies.forEach(subE => {
+                        if (Math.hypot(subE.x - this.x, subE.y - this.y) < 100 * G_SCALE) {
+                             subE.takeDamage(this.dmg * 0.5);
+                        }
+                    });
+                }
+                
+                // --- RICOCHET LOGIC ---
+                if (this.ricochet > 0) {
+                    this.ricochet--;
+                    let nearest = enemies.find(n => n !== e && Math.hypot(n.x - this.x, n.y - this.y) < 400);
+                    if (nearest) {
+                        let ang = Math.atan2(nearest.y - this.y, nearest.x - this.x);
+                        this.vx = Math.cos(ang) * orbStats.speed;
+                        this.vy = Math.sin(ang) * orbStats.speed;
+                        return false; // Keep alive for bounce
+                    }
+                }
+
                 this.pen--;
                 ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(this.x,this.y, 5, 0, Math.PI*2); ctx.fill();
                 if (this.pen <= 0) return true;
@@ -994,12 +1099,14 @@ function takeDamage(amount) {
     let mitigation = Math.min(CAP_DEF, dragonDefPct);
     amount *= (1 - mitigation);
     if (dragonShield > 0) {
-        if (dragonShield >= amount) { dragonShield -= amount; amount = 0; } 
-        else { amount -= dragonShield; dragonShield = 0; 
+        if (dragonShield >= amount) { dragonShield -= amount;
+        amount = 0; } 
+        else { amount -= dragonShield; dragonShield = 0;
             if (shieldExplode) {
                 enemies.forEach(e => {
                     if (Math.hypot(e.x - spine[0].x, e.y - spine[0].y) < 300) {
                         e.takeDamage(100 * dragonAtk); e.x += (e.x - spine[0].x) * 2;
+                  
                     }
                 });
                 ctx.fillStyle = "rgba(0, 255, 255, 0.5)"; ctx.beginPath(); ctx.arc(spine[0].x, spine[0].y, 300, 0, Math.PI*2); ctx.fill();
@@ -1011,7 +1118,8 @@ function takeDamage(amount) {
         dragonHP -= amount;
         ctx.fillStyle = "rgba(255,0,0,0.3)"; ctx.fillRect(0,0,width,height); 
         if (dragonHP <= 0 && reviveCount > 0) {
-            reviveCount--; dragonHP = dragonMaxHP * 0.5;
+            reviveCount--;
+            dragonHP = dragonMaxHP * 0.5;
             enemies.forEach(e => {
                 let d = Math.hypot(spine[0].x - e.x, spine[0].y - e.y);
                 if (d < 500) e.x += (e.x - spine[0].x) * 2; 
@@ -1042,16 +1150,17 @@ function checkLaserHit(enemy, head, count, angleOffset) {
                 let missingPct = (dragonMaxHP - dragonHP) / dragonMaxHP;
                 mult += (missingPct * 100) * 0.015; 
             }
-            if (laserType === 'void') mult += 0.01;
+            if (laserType === 'void') {
+                enemy.takeDamage(enemy.maxHp * 0.02); // 2% Max HP Dmg
+            }
+            
             let dmg = 6 * dragonAtk * mult * laserDmgMult;
-            if (laserType === 'shotgun') dmg *= 2; 
-
-            // DISCO EFFECT
+            if (laserType === 'shotgun') dmg *= 2;
             if (discoMode) {
                  if (Math.random() < 0.1) {
-                     enemy.takeDamage(dmg * 0.5, true); // Fire
+                     enemy.takeDamage(dmg * 0.5, true, 'burn');
                  } else if (Math.random() < 0.1) {
-                     enemy.speed *= 0.5; // Ice
+                     enemy.speed *= 0.5;
                  }
             }
 
@@ -1071,13 +1180,24 @@ function levelUp(isReroll = false) {
         expNext = Math.floor(expNext * 1.2) + 500; 
         level++;
         healPct(0.3); 
-        rerollAvailable = true;
+        canReroll = true;
     }
     
-    upgradeChoices = [];
+    if (!isReroll) upgradeChoices = [];
+    
+    if (upgradeChoices.length === 0 || isReroll) {
+        upgradeChoices = generateChoices(4);
+    }
+    
+    updateCardBounds();
+}
+
+function generateChoices(count) {
+    let choices = [];
     let pool = UPGRADES.filter(u => !u.req || u.req() === true);
-    const weights = [60, 25, 10, 5, 1, 0.1]; 
-    while(upgradeChoices.length < 4 && pool.length > 0) {
+    const weights = [60, 25, 10, 5, 1, 0.1];
+    
+    while(choices.length < count && pool.length > 0) {
         let rRoll = Math.random() * 100;
         let selectedRarity = 0;
         let cumulative = 0;
@@ -1089,24 +1209,30 @@ function levelUp(isReroll = false) {
         if (rarityPool.length === 0) rarityPool = pool; 
         let idx = Math.floor(Math.random() * rarityPool.length);
         let choice = rarityPool[idx];
-        if (!upgradeChoices.includes(choice)) { upgradeChoices.push(choice); }
+        if (!choices.includes(choice)) { choices.push(choice); }
     }
-    
-    const cardW = 220 * G_SCALE * 1.5; // Smaller cards for 4 choices
-    const cardH = 350 * G_SCALE * 1.5; 
-    const gap = 20 * G_SCALE;
+    return choices;
+}
+
+function updateCardBounds() {
+    const cardW = 280 * G_SCALE * 1.5;
+    const cardH = 400 * G_SCALE * 1.5;
+    const gap = 30 * G_SCALE;
     const totalW = (cardW * 4) + (gap * 3);
     const startX = (width - totalW) / 2;
     cardBounds = upgradeChoices.map((_, i) => ({
         x: startX + i * (cardW + gap), 
-        y: height/2 - (150 * G_SCALE), 
+        y: height/2 - (200 * G_SCALE), 
         w: cardW, 
         h: cardH
     }));
 }
 
 function selectUpgrade(index) {
-    upgradeChoices[index].run();
+    let u = upgradeChoices[index];
+    u.run();
+    myUpgrades.push(u); // Track inventory
+    upgradeChoices = [];
     isPaused = false;
 }
 
@@ -1115,8 +1241,8 @@ function spawnWave() {
     const count = 10 + Math.floor(wave * 2.5);
     const types = [];
     
-    if (wave <= 5) types.push('swarmer', 'fly', 'mite', 'spore');
-    if (wave >= 2) types.push('charger'); 
+    if (wave <= 5) types.push('swarmer', 'fly', 'mite', 'wasp'); 
+    if (wave >= 2) types.push('charger', 'drone', 'shooter'); 
     if (wave >= 3) types.push('splitter'); 
     if (wave > 5) types.push('drone', 'swarmer', 'wasp', 'splitter');
     if (wave > 8) types.push('grunt', 'shielded', 'lancer');
@@ -1178,7 +1304,6 @@ function drawLasers(head) {
             drawLaserFan(head, laserSide, -Math.PI/2);
         }
     }
-    // Tail Turret Logic
     if (tailTurret) {
          let tail = spine[spine.length-1];
          drawLaserFan(tail, 1, Math.PI);
@@ -1253,7 +1378,8 @@ function drawDragonBone(x1, y1, x2, y2, thickness, isWing = false) {
 function drawWings(anchor) {
     const flap = Math.sin(frame * CONFIG.wingFlapSpeed);
     const drawSide = (isLeft) => {
-        let side = isLeft ? -1 : 1;
+        let side = isLeft ?
+        -1 : 1;
         let a1 = anchor.angle + (side * 1.5) + (flap * 0.2 * side);
         let armLen = CONFIG.wingSpan * 0.35;
         let j1X = anchor.x + Math.cos(a1) * armLen, j1Y = anchor.y + Math.sin(a1) * armLen;
@@ -1266,7 +1392,8 @@ function drawWings(anchor) {
             let fLen = CONFIG.wingSpan * (0.9 - i * 0.15);
             fingerPoints.push({ x: j2X + Math.cos(fA) * fLen, y: j2Y + Math.sin(fA) * fLen });
         }
-        ctx.fillStyle = furyActive ? "rgba(255, 0, 0, 0.15)" : "rgba(0, 120, 255, 0.15)";
+        ctx.fillStyle = furyActive ?
+        "rgba(255, 0, 0, 0.15)" : "rgba(0, 120, 255, 0.15)";
         ctx.beginPath(); ctx.moveTo(anchor.x, anchor.y); ctx.lineTo(j1X, j1Y); ctx.lineTo(j2X, j2Y);
         fingerPoints.forEach(p => ctx.lineTo(p.x, p.y));
         ctx.fill();
@@ -1324,9 +1451,11 @@ function drawUI() {
     if (bosses.length > 0) {
         let boss = bosses[0];
         let bw = 600 * G_SCALE; let bh = 20; let bx = width/2 - bw/2;
-        ctx.fillStyle = "#330000"; ctx.fillRect(bx, 50, bw, bh);
+        ctx.fillStyle = "#330000";
+        ctx.fillRect(bx, 50, bw, bh);
         ctx.fillStyle = boss.type.includes('mini') ? "#aa00aa" : "#ff0000"; ctx.fillRect(bx, 50, bw * (Math.max(0,boss.hp)/boss.maxHp), bh);
-        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.strokeRect(bx, 50, bw, bh);
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2; ctx.strokeRect(bx, 50, bw, bh);
         ctx.fillStyle = "#fff"; ctx.textAlign = "center";
         ctx.fillText(boss.type.toUpperCase(), width/2, 45);
     }
@@ -1338,7 +1467,8 @@ function drawUI() {
     ctx.fillStyle = hpPct > 0.3 ? (furyActive ? "#ffaa00" : "lime") : "red";
     ctx.fillRect(bx, height - 30, barW * hpPct, 20);
     ctx.strokeStyle = "#fff"; ctx.strokeRect(bx, height-30, barW, 20);
-    ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.fillText(`${Math.floor(dragonHP)}/${Math.floor(dragonMaxHP)}`, width/2, height - 15);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center"; ctx.fillText(`${Math.floor(dragonHP)}/${Math.floor(dragonMaxHP)}`, width/2, height - 15);
     
     if (dragonShield > 0) {
         const shPct = Math.min(1, dragonShield / dragonMaxShield);
@@ -1346,11 +1476,11 @@ function drawUI() {
     }
 
     if (isPaused) {
-        ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0,0,width,height);
+        ctx.fillStyle = "rgba(0,0,0,0.9)"; ctx.fillRect(0,0,width,height);
         ctx.textAlign = "center"; 
         ctx.fillStyle = COLORS.glow; ctx.font = "bold 40px monospace";
         ctx.shadowBlur = 20; ctx.shadowColor = COLORS.glow;
-        ctx.fillText("EVOLUTION", width/2, height/2 - 250);
+        ctx.fillText("EVOLUTION", width/2, height/2 - 300);
         ctx.shadowBlur = 0;
         
         upgradeChoices.forEach((c, i) => {
@@ -1360,7 +1490,8 @@ function drawUI() {
             if(c.r===3) rColor=COLORS.legendary; if(c.r===4) rColor=COLORS.cursed;
             if(c.r===5) rColor=COLORS.mythic;
 
-            ctx.fillStyle = "#050a14"; ctx.fillRect(b.x, b.y, b.w, b.h);
+            ctx.fillStyle = "#050a14"; ctx.fillRect(b.x, 
+            b.y, b.w, b.h);
             ctx.strokeStyle = rColor; ctx.lineWidth = 4; ctx.strokeRect(b.x, b.y, b.w, b.h);
             
             let grad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
@@ -1374,18 +1505,33 @@ function drawUI() {
             let rText = ["COMMON", "RARE", "EPIC", "LEGENDARY", "CURSED", "MYTHIC"][c.r];
             ctx.font = `bold 14px monospace`; ctx.fillText(rText, b.x + b.w/2, b.y + 85);
 
-            ctx.fillStyle = "white"; ctx.font = `${14 * G_SCALE * 1.5}px monospace`;
+            ctx.fillStyle = "white";
+            ctx.font = `${14 * G_SCALE * 1.5}px monospace`;
             wrapText(ctx, c.desc, b.x + b.w/2, b.y + 140, b.w - 40, 24);
             ctx.fillStyle = rColor; ctx.font = `bold ${16 * G_SCALE * 1.5}px monospace`;
             ctx.fillText("[ CLICK TO SELECT ]", b.x + b.w/2, b.y + b.h - 40);
+
+            // --- SINGLE CARD REROLL BUTTON ---
+            // Only draw if player hasn't used their one reroll yet
+            if (canReroll) {
+                // Draw small button under the card
+                let btnW = 80; let btnH = 30;
+                let btnX = b.x + b.w/2 - btnW/2;
+                let btnY = b.y + b.h + 10;
+                
+                ctx.fillStyle = "#333"; 
+                ctx.fillRect(btnX, btnY, btnW, btnH);
+                ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.strokeRect(btnX, btnY, btnW, btnH);
+                ctx.fillStyle = "#fff"; ctx.font = "bold 16px monospace";
+                ctx.fillText("REROLL", btnX + btnW/2, btnY + 20);
+            }
         });
 
-        // REROLL BUTTON
-        if (rerollAvailable) {
-            ctx.fillStyle = "#fff"; ctx.fillRect(width/2 - 100, height/2 + 250, 200, 50);
-            ctx.fillStyle = "#000"; ctx.font = "bold 24px monospace"; 
-            ctx.fillText("REROLL (1 Left)", width/2, height/2 + 283);
-        }
+        // --- SHOW INVENTORY ---
+        ctx.fillStyle = "white"; ctx.font = "16px monospace"; ctx.textAlign = "left";
+        ctx.fillText("STATS / UPGRADES:", 20, height - 150);
+        let txt = myUpgrades.map(u => u.name).join(", ");
+        wrapText(ctx, txt, 20, height - 120, width - 40, 20);
     }
 }
 
@@ -1399,7 +1545,8 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
             ctx.fillText(line, x, y);
             line = words[n] + ' ';
             y += lineHeight;
-        } else { line = testLine; }
+        } else { line = testLine;
+        }
     }
     ctx.fillText(line, x, y);
 }
@@ -1415,7 +1562,8 @@ function update() {
     if (furyActive) speed *= 1.5;
     
     if (webbedTimer > 0) {
-        speed *= 0.4; webbedTimer--;
+        speed *= 0.4;
+        webbedTimer--;
         ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(head.x, head.y, 40 * VISUAL_SCALE, 0, Math.PI*2); ctx.stroke();
     }
 
@@ -1433,12 +1581,14 @@ function update() {
         let body = spine[leg.anchorIndex], side = leg.isLeft ? -1.6 : 1.6;
         let iX = body.x + Math.cos(body.angle + side) * (115 * VISUAL_SCALE), iY = body.y + Math.sin(body.angle + side) * (115 * VISUAL_SCALE);
         if (!leg.isStepping && Math.hypot(iX - leg.x, iY - leg.y) > 95 * VISUAL_SCALE) {
-            leg.isStepping = true; leg.stepProgress = 0; leg.stepStartX = leg.x; leg.stepStartY = leg.y;
+            leg.isStepping = true; leg.stepProgress = 0; leg.stepStartX = 
+            leg.x; leg.stepStartY = leg.y;
             leg.targetX = iX + Math.cos(body.angle) * (70 * VISUAL_SCALE); leg.targetY = iY + Math.sin(body.angle) * (70 * VISUAL_SCALE);
         }
         if (leg.isStepping) {
             leg.stepProgress += CONFIG.legSpeed;
             if (leg.stepProgress >= 1) { leg.isStepping = false; leg.x = leg.targetX; leg.y = leg.targetY; }
+          
             else {
                 let t = leg.stepProgress;
                 leg.x = leg.stepStartX + (leg.targetX - leg.stepStartX) * t; leg.y = leg.stepStartY + (leg.targetY - leg.stepStartY) * t;
@@ -1453,11 +1603,14 @@ function update() {
     }
     
     if (furyEnabled && furyMeter >= 100 && !furyActive) {
-        furyActive = true; furyTimer = furyDuration; shockwaveEnabled = true; 
+        furyActive = true;
+        furyTimer = furyDuration; shockwaveEnabled = true; 
     }
     if (furyActive) {
-        furyTimer--; furyMeter = (furyTimer / furyDuration) * 100;
-        if (furyTimer <= 0) { furyActive = false; furyMeter = 0; }
+        furyTimer--;
+        furyMeter = (furyTimer / furyDuration) * 100;
+        if (furyTimer <= 0) { furyActive = false; furyMeter = 0;
+        }
     }
     if (gamblerMode) {
         gamblerTimer++;
@@ -1474,19 +1627,22 @@ function update() {
         else return; 
     }
     if (timeStopChance > 0 && !timeStopActive && frame % 600 === 0 && Math.random() < timeStopChance) {
-        timeStopActive = true; timeStopTimer = 120;
+        timeStopActive = true;
+        timeStopTimer = 120;
     }
 
     if(shockwaveEnabled) {
         shockwaveTimer++;
         if(shockwaveTimer > (furyActive ? 30 : shockwaveInterval)) { 
-            shockwaveTimer = 0; shockwaveActiveFrame = 15;
+            shockwaveTimer = 0;
+            shockwaveActiveFrame = 15;
             const center = spine[Math.floor(spine.length/2)];
             enemies.forEach(e => {
                 let d = Math.hypot(center.x - e.x, center.y - e.y);
                 if(d < shockwaveRange) {
                     e.takeDamage(shockwaveDmg * dragonAtk);
-                    let a = Math.atan2(e.y - center.y, e.x - center.x);
+                    let a = Math.atan2(e.y - center.y, 
+                    e.x - center.x);
                     let push = 150 * G_SCALE * knockbackStr;
                     e.x += Math.cos(a) * push; e.y += Math.sin(a) * push;
                 }
@@ -1495,8 +1651,9 @@ function update() {
     }
     
     if (mouse.down && orbLevel > 0) {
-        const fireRate = Math.max(5, 20 - (orbLevel * 2));
-        if (frame % fireRate === 0) {
+        // Updated Firing Logic using fireRateMult
+        const fireRate = Math.max(5, (20 - (orbLevel * 2)) / fireRateMult);
+        if (frame % Math.floor(fireRate) === 0) {
             projectiles.push(new Projectile(head.x, head.y, head.angle, orbStats.speed));
             if (orbLevel >= 3) { 
                 projectiles.push(new Projectile(head.x, head.y, head.angle + 0.3, orbStats.speed));
@@ -1505,7 +1662,8 @@ function update() {
         }
     }
     
-    if (unlockedMissiles && frame % 60 === 0) {
+    // Increased Missile Rate with Fire Rate Mult
+    if (unlockedMissiles && frame % Math.floor(60 / fireRateMult) === 0) {
         for(let m=0; m<missileCount; m++) summons.push(new Missile(head.x, head.y));
     }
     if (unlockedMines && frame % 120 === 0) {
@@ -1513,7 +1671,8 @@ function update() {
     }
     
     if (unlockedStatic && frame % 30 === 0) {
-        let nearest = enemies[0]; let minD = Infinity;
+        let nearest = enemies[0];
+        let minD = Infinity;
         enemies.forEach(e => {
             let d = Math.hypot(e.x - head.x, e.y - head.y);
             if(d < minD) { minD = d; nearest = e; }
@@ -1535,7 +1694,8 @@ function update() {
             if(furyEnabled && !furyActive) furyMeter = Math.min(100, furyMeter + (e.isBoss ? 20 : 2));
             enemies.splice(i, 1); 
         }
-    });
+   
+     });
     
     damageNumbers = damageNumbers.filter(d => d.update());
     gems = gems.filter(g => !g.update());
@@ -1552,11 +1712,13 @@ function draw() {
     drawLasers(spine[0]);
     drawShockwave(spine);
     if (reactorDmg > 0) {
-        ctx.beginPath(); ctx.arc(spine[0].x, spine[0].y, 200 * VISUAL_SCALE * reactorRadiusMult, 0, Math.PI*2);
+        ctx.beginPath();
+        ctx.arc(spine[0].x, spine[0].y, 200 * VISUAL_SCALE * reactorRadiusMult, 0, Math.PI*2);
         ctx.strokeStyle = "rgba(255, 100, 0, 0.1)"; ctx.stroke();
     }
     if (auraIceSlow > 0) {
-        ctx.beginPath(); ctx.arc(spine[0].x, spine[0].y, 300 * VISUAL_SCALE, 0, Math.PI*2);
+        ctx.beginPath();
+        ctx.arc(spine[0].x, spine[0].y, 300 * VISUAL_SCALE, 0, Math.PI*2);
         ctx.strokeStyle = "rgba(0, 255, 255, 0.1)"; ctx.stroke();
     }
 
@@ -1575,13 +1737,15 @@ function draw() {
         if (ribW > 0) {
             let p = s.angle + Math.PI/2;
             ctx.beginPath(); ctx.moveTo(s.x + Math.cos(p)*ribW, s.y + Math.sin(p)*ribW);
+          
             ctx.quadraticCurveTo(s.x - Math.cos(s.angle)*15*VISUAL_SCALE, s.y - Math.sin(s.angle)*15*VISUAL_SCALE, s.x - Math.cos(p)*ribW, s.y - Math.sin(p)*ribW);
             ctx.stroke();
         }
         if (i > 0) {
             ctx.lineWidth = i < 40 ? 5 * VISUAL_SCALE : 2 * VISUAL_SCALE;
             ctx.strokeStyle = furyActive ? "#ff3300" : COLORS.accent;
-            ctx.beginPath(); ctx.moveTo(spine[i - 1].x, spine[i - 1].y); ctx.lineTo(s.x, s.y); ctx.stroke();
+            ctx.beginPath(); 
+            ctx.moveTo(spine[i - 1].x, spine[i - 1].y); ctx.lineTo(s.x, s.y); ctx.stroke();
         }
     });
     drawShield(spine[0]); 
@@ -1591,6 +1755,7 @@ function draw() {
         let hX = body.x + Math.cos(body.angle + hSide) * (25 * VISUAL_SCALE), hY = body.y + Math.sin(body.angle + hSide) * (25 * VISUAL_SCALE);
         let dx = leg.x - hX, dy = (leg.y - leg.lift) - hY;
         let dist = Math.min(Math.sqrt(dx * dx + dy * dy), CONFIG.upperLegLen + CONFIG.lowerLegLen - 2);
+       
         let a = Math.atan2(dy, dx), cos = (CONFIG.upperLegLen**2 + dist**2 - CONFIG.lowerLegLen**2) / (2 * CONFIG.upperLegLen * dist);
         let kneeA = leg.isLeft ? a + Math.acos(Math.max(-1, Math.min(1, cos))) : a - Math.acos(Math.max(-1, Math.min(1, cos)));
         let kX = hX + Math.cos(kneeA) * CONFIG.upperLegLen, kY = hY + Math.sin(kneeA) * CONFIG.upperLegLen;
@@ -1600,9 +1765,11 @@ function draw() {
     drawUI();
     if (!gameActive) {
         ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0,0,width,height);
-        ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "50px monospace";
+        ctx.fillStyle = "white";
+        ctx.textAlign = "center"; ctx.font = "50px monospace";
         ctx.fillText("GAME OVER", width/2, height/2);
-        ctx.font = "20px monospace"; ctx.fillText(`Max Level: ${level} | Wave: ${wave}`, width/2, height/2 + 50);
+        ctx.font = "20px monospace";
+        ctx.fillText(`Max Level: ${level} | Wave: ${wave}`, width/2, height/2 + 50);
         ctx.fillText("Refresh to restart", width/2, height/2 + 80);
     }
 }
@@ -1623,11 +1790,28 @@ window.addEventListener('resize', resize);
 window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 window.addEventListener('mousedown', () => {
     if (isPaused) {
-        // Check Reroll
-        if (rerollAvailable && mouse.x > width/2 - 100 && mouse.x < width/2 + 100 && mouse.y > height/2 + 250 && mouse.y < height/2 + 300) {
-            rerollAvailable = false;
-            levelUp(true); // Reroll
-            return;
+        // --- PER CARD REROLL CLICK CHECK ---
+        if (canReroll) {
+            let rerolled = false;
+            cardBounds.forEach((b, i) => {
+                // Check if click is on the reroll button (bottom center of card)
+                // Btn rect was: btnX, btnY, 80, 30
+                let btnW = 80; let btnH = 30;
+                let btnX = b.x + b.w/2 - btnW/2;
+                let btnY = b.y + b.h + 10;
+                
+                if (mouse.x > btnX && mouse.x < btnX + btnW && 
+                    mouse.y > btnY && mouse.y < btnY + btnH) {
+                    
+                    // Reroll THIS specific card
+                    canReroll = false; // CONSUME THE ONE-TIME REROLL
+                    let pool = UPGRADES.filter(u => !u.req || u.req() === true);
+                    let newChoice = pool[Math.floor(Math.random() * pool.length)];
+                    upgradeChoices[i] = newChoice;
+                    rerolled = true;
+                }
+            });
+            if (rerolled) return;
         }
 
         cardBounds.forEach((b, i) => {
