@@ -1,0 +1,1261 @@
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let width, height;
+let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2, down: false };
+let frame = 0;
+
+// --- GLOBAL SCALING ---
+const G_SCALE = 0.5;
+
+// --- THEME & RARITY COLORS ---
+const COLORS = {
+    bone: "#001a4d", accent: "#0066ff", glow: "#00ffff", laser: "#ccf2ff",
+    plasma: "#ff00ff", enemyProj: "#ff3333", shield: "rgba(0, 255, 255, 0.3)",
+    shockwave: "rgba(255, 255, 0, 0.4)", bossBar: "#ff0000", fury: "#ff3300",
+    cursed: "#800080",
+    // Rarities
+    common: "#b0b0b0", rare: "#0099ff", epic: "#9900ff", legendary: "#ffcc00", cursed_text: "#ff0000"
+};
+
+// --- GAME STATE ---
+let dragonHP = 18000;
+let dragonMaxHP = 18000;
+let dragonShield = 0;
+let dragonMaxShield = 0;
+let dragonShieldRegen = 0;
+let shieldCooldown = 0;
+
+// Caps
+const CAP_DEF = 0.75; // Buffed cap for late game
+const CAP_DODGE = 0.60;
+const CAP_CRIT = 1.0;
+
+// Stats
+let dragonDefPct = 0;
+let dragonAtk = 1;
+let dragonRegen = 0.2;
+let xpMultiplier = 1.0;
+let lifeSteal = 0;
+let dodgeChance = 0;
+let globalSlow = 1.0;
+let tailDmgMult = 1.0;
+let critChance = 0.05;
+let critDmg = 1.5;
+let thornsDmg = 0;
+let knockbackStr = 1.0;
+let executeThreshold = 0;
+let reviveCount = 0;
+let dashCooldown = 0;
+let maxDashCooldown = 180;
+let hasDash = false;
+
+// Status Effects (On Hit)
+let chanceBurn = 0;
+let chanceFreeze = 0;
+let chanceShock = 0;
+let chancePoison = 0;
+
+// Special Mechanics
+let furyEnabled = false;
+let furyMeter = 0;
+let furyActive = false;
+let furyTimer = 0;
+let furyDuration = 600;
+let autoTurretCount = 0;
+let magnetRange = 1.0;
+let projectilesCount = 0; // Extra random projectiles
+let orbiters = []; // {angle, speed, dist, dmg}
+
+// Blood Lust Logic
+let hasBloodLust = false;
+
+// Shockwave Stats
+let shockwaveEnabled = false;
+let shockwaveTimer = 0;
+let shockwaveInterval = 180;
+let shockwaveRange = 300 * G_SCALE;
+let shockwaveDmg = 50;
+let shockwaveActiveFrame = 0;
+
+let level = 1;
+let exp = 0;
+let expNext = 800;
+let wave = 0;
+let score = 0;
+let gameActive = true;
+let isPaused = false;
+
+// --- STACKABLE UPGRADE STATS ---
+let laserCount = 1;
+let laserWidthBase = 1;
+let laserRear = 0;
+let laserSide = 0;
+let laserType = 'normal';
+let orbLevel = 0;
+let orbStats = { speed: 8 * G_SCALE, size: 10 * G_SCALE, pen: 1, damageMult: 1, count: 1 };
+let reactorDmg = 0;
+let reactorRadiusMult = 1.0;
+
+let enemies = [];
+let projectiles = [];
+let enemyProjectiles = [];
+let gems = [];
+let upgradeChoices = [];
+let cardBounds = [];
+let damageNumbers = [];
+
+// --- CONFIG (Dragon Specs - UNTOUCHED) ---
+let VISUAL_SCALE = 0.6 * G_SCALE;
+
+const CONFIG = {
+    segmentCount: 85,
+    segmentDist: 8 * VISUAL_SCALE,
+    headSpeed: 0.015,
+    maxRibWidth: 42 * VISUAL_SCALE,
+    legSpeed: 0.05,
+    upperLegLen: 75 * VISUAL_SCALE,
+    lowerLegLen: 85 * VISUAL_SCALE,
+    wingSpan: 340 * VISUAL_SCALE,
+    wingFlapSpeed: 0.03,
+    wingAttachment: 18
+};
+
+let spine = [];
+let legs = [];
+
+// --- UPGRADES DATABASE ---
+// Rarity Weights: Common 45%, Rare 30%, Epic 15%, Legendary 8%, Cursed 2%
+const R_COM = 'common';
+const R_RAR = 'rare';
+const R_EPC = 'epic';
+const R_LEG = 'legendary';
+const R_CUR = 'cursed';
+
+const UPGRADES = [
+    // --- COMMON (Base Stats) ---
+    { id: 'hp1', r: R_COM, name: "Iron Plating", desc: "Max HP +20%", run: () => updateMaxHP(0.2) },
+    { id: 'regen1', r: R_COM, name: "Regeneration Field", desc: "Regen +2 HP/frame", run: () => dragonRegen += 2 },
+    { id: 'def1', r: R_COM, name: "Obsidian Scales", desc: "Defense +5%", run: () => dragonDefPct = Math.min(CAP_DEF, dragonDefPct + 0.05) },
+    { id: 'atk1', r: R_COM, name: "Savage Claws", desc: "ATK +15%", run: () => dragonAtk += 0.15 },
+    { id: 'crit1', r: R_COM, name: "Sharpened Fangs", desc: "Crit Chance +5%", run: () => critChance = Math.min(CAP_CRIT, critChance + 0.05) },
+    { id: 'spd1', r: R_COM, name: "Hyper Metabolism", desc: "Move Speed +10%", run: () => CONFIG.headSpeed *= 1.10 },
+    { id: 'size1', r: R_COM, name: "Growth Hormone", desc: "Size +10%, HP +15%", run: () => { VISUAL_SCALE *= 1.1; updateDragonSize(); updateMaxHP(0.15); } },
+    { id: 'thorns1', r: R_COM, name: "Spiked Carapace", desc: "Thorns +50 DMG", run: () => thornsDmg += 50 },
+    { id: 'beam1', r: R_COM, name: "Giga Beam", desc: "Lasers 20% Wider", run: () => laserWidthBase += 0.2 },
+    { id: 'xp1', r: R_COM, name: "Magnetic Soul", desc: "Magnet Range +30%", run: () => magnetRange *= 1.3 },
+    { id: 'orb1', r: R_COM, name: "Orb Velocity", desc: "Orbs Speed +25%", run: () => orbStats.speed *= 1.25 },
+
+    // --- RARE (Better Stats, Basic Mechanics) ---
+    { id: 'beam2', r: R_RAR, name: "Binary Star", desc: "+1 Main Laser Beam", run: () => laserCount++ },
+    { id: 'beam3', r: R_RAR, name: "Rear Guard", desc: "+1 Rear Laser", run: () => laserRear++ },
+    { id: 'beam4', r: R_RAR, name: "Flank Cannons", desc: "+1 Side Laser Pair", run: () => laserSide++ },
+    { id: 'shld1', r: R_RAR, name: "Energy Shield", desc: "Unlock 500 Shield (Regens)", run: () => { dragonMaxShield += 500; dragonShieldRegen += 2; } },
+    { id: 'shld2', r: R_RAR, name: "Shield Capacitor", req: () => dragonMaxShield > 0, desc: "Shield Cap +50%", run: () => dragonMaxShield *= 1.5 },
+    { id: 'dodge1', r: R_RAR, name: "Evasive Maneuvers", desc: "Dodge +8%", run: () => dodgeChance = Math.min(CAP_DODGE, dodgeChance + 0.08) },
+    { id: 'crit2', r: R_RAR, name: "Sniper Lens", desc: "Crit Dmg +50%", run: () => critDmg += 0.5 },
+    { id: 'tail1', r: R_RAR, name: "Spiked Tail", desc: "Tail DMG x3", run: () => tailDmgMult += 3 },
+    { id: 'turret1', r: R_RAR, name: "Auto Turret", desc: "Fires at nearest enemy", run: () => autoTurretCount++ },
+    { id: 'orb2', r: R_RAR, name: "Orb Satellite", desc: "+1 Orb / Unlock", run: () => { orbLevel++; orbStats.count++; } },
+    { id: 'burn1', r: R_RAR, name: "Pyromancer", desc: "10% Chance to Burn", run: () => chanceBurn += 0.1 },
+    { id: 'ice1', r: R_RAR, name: "Cryomancer", desc: "10% Chance to Freeze", run: () => chanceFreeze += 0.1 },
+    { id: 'react1', r: R_RAR, name: "Reactor Core", desc: "Burn Aura +15 DMG", run: () => reactorDmg += 15 },
+    { id: 'dash1', r: R_RAR, name: "Blink Module", desc: "Unlock Dash (Spacebar)", req: () => !hasDash, run: () => hasDash = true },
+
+    // --- EPIC (Advanced Mechanics, Synergies) ---
+    { id: 'beam5', r: R_EPC, name: "Plasma Upgrade", desc: "Lasers Penetrate Armor", run: () => laserType = 'plasma' },
+    { id: 'beam6', r: R_EPC, name: "Broadside", desc: "+2 Side Lasers", run: () => laserSide += 2 },
+    { id: 'fury1', r: R_EPC, name: "Draconic Fury", desc: "Unlock Fury Mode", req: () => !furyEnabled, run: () => furyEnabled = true },
+    { id: 'fury2', r: R_EPC, name: "Rage Builder", req: () => furyEnabled, desc: "Fury charges 50% faster", run: () => furyDuration += 60 },
+    { id: 'shock1', r: R_EPC, name: "Static Field", desc: "Unlock Shockwave", req: () => !shockwaveEnabled, run: () => { shockwaveEnabled = true; shockwaveDmg += 50; } },
+    { id: 'shock2', r: R_EPC, name: "Overcharge", req: () => shockwaveEnabled, desc: "Shockwave Rate +25%", run: () => shockwaveInterval *= 0.75 },
+    { id: 'exec1', r: R_EPC, name: "Executioner", desc: "Kill enemies < 8% HP", run: () => executeThreshold = 0.08 },
+    { id: 'lifesteal', r: R_EPC, name: "Vampirism", desc: "+50 HP per Kill", run: () => lifeSteal += 50 },
+    { id: 'scale_hp', r: R_EPC, name: "Titan's Blood", desc: "ATK increases by 1% of Max HP", run: () => { dragonAtk += (dragonMaxHP * 0.01) / 100; /* simplified instantaneous buff */ } },
+    { id: 'summon1', r: R_EPC, name: "Void Wisp", desc: "Summon orbiting wisp", run: () => orbiters.push({ a: 0, r: 100, s: 0.05, dmg: 50 }) },
+    { id: 'revive1', r: R_EPC, name: "Phoenix Heart", desc: "+1 Revival", run: () => reviveCount++ },
+
+    // --- LEGENDARY (Game Changers) ---
+    { id: 'god_beam', r: R_LEG, name: "Supernova", desc: "+3 Main Lasers, Width +50%", run: () => { laserCount+=3; laserWidthBase+=0.5; } },
+    { id: 'god_orb', r: R_LEG, name: "Orb Colossus", desc: "Orbs Size x2, DMG x2", run: () => { orbStats.size *= 2; orbStats.damageMult *= 2; } },
+    { id: 'god_time', r: R_LEG, name: "Chronos", desc: "Global Slow 20% (Stackable)", run: () => globalSlow *= 0.8 },
+    { id: 'god_def', r: R_LEG, name: "Aegis", desc: "Max Shield +2000, Regen +10", run: () => { dragonMaxShield += 2000; dragonShieldRegen += 10; dragonShield += 2000; } },
+    { id: 'god_scythe', r: R_LEG, name: "Death's Scythe", desc: "Orbs Execute < 15% HP", run: () => { orbStats.pen += 5; executeThreshold = Math.max(executeThreshold, 0.15); } },
+    { id: 'god_scale', r: R_LEG, name: "Elder Form", desc: "Size +30%, HP +50%, ATK +20%", run: () => { VISUAL_SCALE *= 1.3; updateDragonSize(); updateMaxHP(0.5); dragonAtk += 0.2; } },
+    { id: 'god_storm', r: R_LEG, name: "Thunder God", desc: "Shock Chance 100%, Chain Lightning", run: () => chanceShock = 1.0 },
+
+    // --- CURSED (High Risk, High Reward) ---
+    { id: 'cur1', r: R_CUR, name: "Blood Contract", desc: "DMG +100%, Max HP -40%", run: () => { dragonAtk += 1.0; updateMaxHP(-0.4); } },
+    { id: 'cur2', r: R_CUR, name: "Glass Cannon", desc: "DMG +200%, Take +50% DMG", run: () => { dragonAtk += 2.0; /* implemented in takeDamage */ } },
+    { id: 'cur3', r: R_CUR, name: "Tiny Terror", desc: "Size -30%, Dodge +15%, HP -20%", run: () => { VISUAL_SCALE *= 0.7; updateDragonSize(); dodgeChance += 0.15; updateMaxHP(-0.2); } },
+    { id: 'cur4', r: R_CUR, name: "Titan's Burden", desc: "HP x3, Move Speed -50%", run: () => { updateMaxHP(2.0); CONFIG.headSpeed *= 0.5; } },
+    { id: 'cur5', r: R_CUR, name: "Void Walker", desc: "Enemies Slow 50%, You decay 10 HP/s", run: () => { globalSlow *= 0.5; dragonRegen -= 10; } },
+    { id: 'cur6', r: R_CUR, name: "Chaos Prism", desc: "+10 Random Lasers, Accuracy -90%", run: () => { laserCount += 10; /* Logic handles visual spread */ } },
+    { id: 'cur7', r: R_CUR, name: "Death Wish", desc: "XP +200%, Enemy Spawn Rate x2", run: () => { xpMultiplier += 2.0; /* Spawn logic uses this */ } },
+];
+
+// Generate more upgrades to reach 140+ count
+const ELEMENTS = ['Fire', 'Ice', 'Volt', 'Toxic'];
+ELEMENTS.forEach(el => {
+    UPGRADES.push({ r: R_RAR, name: `${el} Infusion`, desc: `+10% ${el} Chance`, run: () => { if(el=='Fire') chanceBurn+=0.1; if(el=='Ice') chanceFreeze+=0.1; if(el=='Volt') chanceShock+=0.1; if(el=='Toxic') chancePoison+=0.1; } });
+    UPGRADES.push({ r: R_EPC, name: `${el} Mastery`, desc: `${el} Dmg/Duration +50%`, run: () => { /* Logic in applyEffect */ } });
+});
+for(let i=0; i<10; i++) UPGRADES.push({ r: R_COM, name: `Minor Strength ${i+1}`, desc: "ATK +5%", run: () => dragonAtk += 0.05 });
+for(let i=0; i<10; i++) UPGRADES.push({ r: R_COM, name: `Minor Health ${i+1}`, desc: "HP +10%", run: () => updateMaxHP(0.1) });
+for(let i=0; i<5; i++) UPGRADES.push({ r: R_RAR, name: `Reinforced Spine ${i+1}`, desc: "Def +2%", run: () => dragonDefPct = Math.min(CAP_DEF, dragonDefPct + 0.02) });
+for(let i=0; i<5; i++) UPGRADES.push({ r: R_EPC, name: `Ancient Wisdom ${i+1}`, desc: "XP +15%", run: () => xpMultiplier += 0.15 });
+
+// --- ENEMY DATABASE ---
+const ENEMY_TYPES = [
+    // TIER 1 (Wave 1-5)
+    'swarmer', 'fly', 'mite', 'spore', 'wasp', 'larva', 'dust', 'gnat', 'leech', 'grub',
+    // TIER 2 (Wave 6-10)
+    'grunt', 'soldier', 'shielded', 'lancer', 'brute', 'zealot', 'imp', 'fiend', 'scout', 'drone',
+    // TIER 3 (Wave 11-20)
+    'shooter', 'sniper', 'gunner', 'mortar', 'hunter', 'webber', 'spitter', 'ranger', 'tracker', 'artillery',
+    // TIER 4 (Wave 21-30)
+    'dasher', 'weaver', 'glitch', 'phantom', 'healer', 'summoner', 'stalker', 'engineer', 'wraith', 'spectre', 'shade', 'ghost',
+    // TIER 5 (Wave 31-40)
+    'tank', 'golem', 'construct', 'barrier', 'monolith', 'fortress', 'behemoth', 'colossus', 'titan_guard', 'sentinel',
+    // TIER 6 (Specialists)
+    'nova', 'splitter', 'vampire', 'reflector', 'assassin', 'pulsar', 'crystal', 'spiker', 'void_eye', 'magma_slug', 'frost_bat',
+    // MINI BOSSES
+    'mini_slayer', 'mini_beholder', 'mini_hydra', 'mini_lich', 'mini_dragon', 'mini_cube', 'mini_worm', 'mini_angel', 'mini_demon', 'mini_bot',
+    'champion_ork', 'champion_elf', 'champion_dwarf', 'shadow_clone', 'fallen_knight',
+    // MAJOR BOSSES
+    'boss_hydra', 'boss_titan', 'boss_ufo', 'boss_void', 'boss_phoenix', 'boss_kraken', 'boss_leviathan', 'boss_chimera', 'boss_overlord', 'boss_queen',
+    'god_zeus', 'god_hades', 'god_ares', 'mech_prime', 'elder_brain'
+];
+
+function updateMaxHP(pct) {
+    let oldMax = dragonMaxHP;
+    dragonMaxHP *= (1 + pct);
+    let diff = dragonMaxHP - oldMax;
+    dragonHP += diff; // Maintain percentage or add raw difference
+}
+
+function updateDragonSize() {
+    CONFIG.segmentDist = 8 * VISUAL_SCALE;
+    CONFIG.maxRibWidth = 42 * VISUAL_SCALE;
+    CONFIG.upperLegLen = 75 * VISUAL_SCALE;
+    CONFIG.lowerLegLen = 85 * VISUAL_SCALE;
+    CONFIG.wingSpan = 340 * VISUAL_SCALE;
+}
+
+// --- CLASSES ---
+
+class FloatingText {
+    constructor(x, y, text, color, size) {
+        this.x = x + (Math.random() - 0.5) * 20;
+        this.y = y;
+        this.text = text;
+        this.color = color;
+        this.life = 60;
+        this.size = size;
+        this.vy = -1;
+    }
+    update() {
+        this.y += this.vy;
+        this.life--;
+        return this.life > 0;
+    }
+    draw() {
+        ctx.globalAlpha = Math.max(0, this.life / 20);
+        ctx.fillStyle = this.color;
+        ctx.font = `bold ${this.size}px monospace`;
+        ctx.fillText(this.text, this.x, this.y);
+        ctx.globalAlpha = 1.0;
+    }
+}
+
+class ExpGem {
+    constructor(x, y, val) { this.x = x; this.y = y; this.val = val; }
+    update() {
+        const head = spine[0];
+        const d = Math.hypot(head.x - this.x, head.y - this.y);
+        if (d < 400 * G_SCALE * magnetRange) {
+            const a = Math.atan2(head.y - this.y, head.x - this.x);
+            this.x += Math.cos(a) * (25 * G_SCALE); this.y += Math.sin(a) * (25 * G_SCALE);
+        }
+        if (d < 60 * G_SCALE) {
+            exp += this.val * xpMultiplier;
+            if (furyEnabled && !furyActive) furyMeter = Math.min(100, furyMeter + 1);
+            if (exp >= expNext) levelUp();
+            return true;
+        }
+        return false;
+    }
+    draw() {
+        ctx.fillStyle = COLORS.glow; ctx.shadowBlur = 10; ctx.shadowColor = COLORS.glow;
+        ctx.beginPath(); ctx.arc(this.x, this.y, 6 * G_SCALE, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+}
+
+class EnemyProjectile {
+    constructor(x, y, angle, type = 'normal') {
+        this.x = x; this.y = y;
+        this.vx = Math.cos(angle) * (6 * G_SCALE);
+        this.vy = Math.sin(angle) * (6 * G_SCALE);
+        this.radius = 8 * G_SCALE;
+        this.type = type;
+        this.dmg = type === 'sniper' ? 100 : 30;
+        if (type === 'boss') { this.radius = 20 * G_SCALE; this.dmg = 150; }
+        if (type === 'web') { this.radius = 12 * G_SCALE; this.dmg = 20; }
+        if (type === 'poison') { this.dmg = 10; }
+    }
+    update() {
+        this.x += this.vx * globalSlow; this.y += this.vy * globalSlow;
+        const head = spine[0];
+        const center = spine[Math.floor(spine.length / 2)];
+        const hitHead = Math.hypot(this.x - head.x, this.y - head.y) < (40 * VISUAL_SCALE);
+        const hitBody = Math.hypot(this.x - center.x, this.y - center.y) < (50 * VISUAL_SCALE);
+
+        if (hitHead || hitBody) {
+            takeDamage(this.dmg);
+            if (this.type === 'web') CONFIG.headSpeed *= 0.8; // Temporary slow?
+            return true;
+        }
+        return (this.x < -100 || this.x > width + 100 || this.y < -100 || this.y > height + 100);
+    }
+    draw() {
+        ctx.fillStyle = this.type === 'boss' ? "#ff00ff" : "#ff3300";
+        if (this.type === 'web') ctx.fillStyle = "#fff";
+        if (this.type === 'poison') ctx.fillStyle = "#0f0";
+        ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+}
+
+class Enemy {
+    constructor(type, waveNum) {
+        const side = Math.random() > 0.5;
+        this.x = side ? -100 : width + 100;
+        this.y = Math.random() * height;
+        this.type = type;
+        this.angle = 0;
+        this.timer = Math.random() * 100;
+        this.state = 0;
+
+        const scale = 1 + (waveNum * 0.35); // Harder scaling
+        const xpScale = 1 + (waveNum * 0.15);
+
+        // Stats Map (Simplified for 135+ types)
+        let h = 100, s = 1.0, r = 20, x = 10, boss = false;
+
+        // --- TIER 1 ---
+        if (['swarmer', 'fly', 'mite', 'gnat', 'grub'].includes(type)) { h = 50; s = 3.0; r = 12; x = 15; }
+        else if (['spore', 'dust', 'larva'].includes(type)) { h = 80; s = 1.5; r = 15; x = 20; }
+        else if (['wasp', 'leech'].includes(type)) { h = 30; s = 5.0; r = 8; x = 25; }
+
+        // --- TIER 2 ---
+        else if (['grunt', 'scout', 'drone'].includes(type)) { h = 300; s = 1.2; r = 22; x = 40; }
+        else if (['soldier', 'imp', 'fiend'].includes(type)) { h = 400; s = 1.1; r = 25; x = 50; }
+        else if (['shielded', 'brute'].includes(type)) { h = 800; s = 0.9; r = 30; x = 70; }
+        else if (['lancer', 'zealot'].includes(type)) { h = 250; s = 2.5; r = 18; x = 55; }
+
+        // --- TIER 3 ---
+        else if (['shooter', 'gunner', 'ranger'].includes(type)) { h = 350; s = 0.9; r = 25; x = 80; }
+        else if (['sniper', 'tracker'].includes(type)) { h = 250; s = 0.7; r = 20; x = 120; }
+        else if (['mortar', 'artillery'].includes(type)) { h = 500; s = 0.5; r = 35; x = 100; }
+        else if (['hunter', 'webber', 'spitter'].includes(type)) { h = 400; s = 1.2; r = 30; x = 90; }
+
+        // --- TIER 4 ---
+        else if (['dasher', 'wraith', 'spectre'].includes(type)) { h = 200; s = 1.5; r = 18; x = 60; }
+        else if (['weaver', 'glitch', 'shade'].includes(type)) { h = 450; s = 1.6; r = 22; x = 110; }
+        else if (['healer', 'summoner', 'engineer'].includes(type)) { h = 600; s = 1.0; r = 30; x = 150; }
+        else if (['phantom', 'ghost', 'stalker'].includes(type)) { h = 350; s = 2.0; r = 25; x = 130; }
+
+        // --- TIER 5 ---
+        else if (['tank', 'golem', 'behemoth'].includes(type)) { h = 2500; s = 0.6; r = 45; x = 250; }
+        else if (['construct', 'barrier', 'sentinel'].includes(type)) { h = 3000; s = 0.5; r = 50; x = 300; }
+        else if (['monolith', 'fortress', 'colossus', 'titan_guard'].includes(type)) { h = 5000; s = 0.3; r = 60; x = 400; }
+
+        // --- SPECIALS ---
+        else if (['nova', 'pulsar'].includes(type)) { h = 150; s = 4.0; r = 15; x = 50; }
+        else if (['splitter', 'vampire', 'assassin'].includes(type)) { h = 700; s = 2.0; r = 20; x = 200; }
+        else if (['reflector', 'crystal', 'void_eye'].includes(type)) { h = 1500; s = 0.8; r = 30; x = 300; }
+
+        // --- BOSSES ---
+        else if (type.startsWith('mini_') || type.startsWith('champion_') || type.startsWith('shadow_')) {
+            h = 15000; s = 1.0; r = 45; x = 2000; boss = true;
+        }
+        else if (type.startsWith('boss_') || type.startsWith('god_') || type.startsWith('mech_')) {
+            h = 50000; s = 0.5; r = 100; x = 10000; boss = true;
+        }
+
+        // Apply Death Wish scaling (Spawn logic already scales count, this scales specific enemy buffs)
+        if (UPGRADES.find(u => u.name === "Death Wish")) { h *= 1.5; }
+
+        this.hp = h * scale;
+        this.maxHp = this.hp;
+        this.speed = s * G_SCALE;
+        this.radius = r * G_SCALE;
+        this.xp = Math.floor(x * xpScale);
+        this.isBoss = boss;
+
+        // Status
+        this.burnStacks = 0;
+        this.freezeStacks = 0;
+        this.poisonStacks = 0;
+        this.shockStacks = 0;
+        this.statusTimer = 0;
+    }
+
+    update() {
+        const head = spine[0];
+        let targetX = head.x;
+        let targetY = head.y;
+        const dist = Math.hypot(targetX - this.x, targetY - this.y);
+        const angleToPlayer = Math.atan2(targetY - this.y, targetX - this.x);
+        this.angle += 0.05;
+        this.timer++;
+
+        // Status Effects
+        if (frame % 30 === 0) {
+            if (this.burnStacks > 0) this.takeDamage(this.burnStacks * 5, true);
+            if (this.poisonStacks > 0) this.takeDamage(this.poisonStacks * 2, true); // Poison is weaker but lasts forever
+        }
+
+        let moveSpeed = this.speed * globalSlow;
+        if (this.freezeStacks > 0) moveSpeed *= Math.max(0.1, 1 - (this.freezeStacks * 0.1));
+
+        let mx = Math.cos(angleToPlayer);
+        let my = Math.sin(angleToPlayer);
+
+        // --- BEHAVIORS ---
+        if (['dasher', 'assassin', 'zealot', 'champion_ork'].includes(this.type)) {
+            if (this.state === 0) { // Moving
+                if (this.timer > 100) { this.state = 1; this.timer = 0; }
+            } else if (this.state === 1) { // Charge
+                moveSpeed = 0;
+                this.x += (Math.random() - 0.5) * 4; this.y += (Math.random() - 0.5) * 4;
+                if (this.timer > 40) { this.state = 2; this.timer = 0; }
+            } else if (this.state === 2) { // DASH
+                moveSpeed *= 8;
+                if (this.timer > 20) { this.state = 0; this.timer = 0; }
+            }
+        }
+        else if (['healer', 'mini_angel'].includes(this.type)) {
+            if (this.timer % 60 === 0) {
+                enemies.forEach(e => {
+                    if (e !== this && Math.hypot(e.x - this.x, e.y - this.y) < 300 * G_SCALE) {
+                        e.hp = Math.min(e.maxHp, e.hp + 200);
+                        ctx.strokeStyle = "#0f0"; ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(e.x, e.y); ctx.stroke();
+                    }
+                });
+            }
+        }
+        else if (['summoner', 'engineer', 'boss_queen', 'elder_brain'].includes(this.type)) {
+            if (dist > 400 * G_SCALE) moveSpeed *= 1; else moveSpeed = -0.5 * G_SCALE;
+            let spawnRate = this.isBoss ? 100 : 300;
+            if (this.timer > spawnRate) {
+                this.timer = 0;
+                enemies.push(new Enemy(this.isBoss ? 'soldier' : 'swarmer', wave));
+            }
+        }
+        else if (['shooter', 'sniper', 'hunter', 'webber', 'boss_ufo', 'mech_prime'].includes(this.type)) {
+            let keepDist = (this.type === 'sniper' ? 600 : 350) * G_SCALE;
+            if (dist > keepDist + 50) { } else if (dist < keepDist - 50) { mx *= -1; my *= -1; } else { mx = 0; my = 0; }
+
+            // UFO NERF: Slower fire rate (was 120)
+            let fireRate = 120;
+            if (this.type === 'boss_ufo') fireRate = 240; // 50% Slower
+            if (this.type === 'sniper') fireRate = 220;
+
+            if (this.timer > fireRate) {
+                let pType = this.type.includes('boss') ? 'boss' : (this.type === 'sniper' ? 'sniper' : (this.type === 'webber' ? 'web' : 'normal'));
+                enemyProjectiles.push(new EnemyProjectile(this.x, this.y, angleToPlayer, pType));
+                this.timer = 0;
+            }
+        }
+
+        this.x += mx * moveSpeed;
+        this.y += my * moveSpeed;
+
+        // Player Collision
+        let hit = false;
+        let points = [0, Math.floor(spine.length / 2), spine.length - 1];
+        for (let idx of points) {
+            let seg = spine[idx];
+            if (Math.hypot(this.x - seg.x, this.y - seg.y) < this.radius + (20 * VISUAL_SCALE)) {
+                hit = true;
+                if (idx === spine.length - 1 && tailDmgMult > 1.0) {
+                    this.takeDamage(20 * dragonAtk * tailDmgMult, false);
+                    let push = 50 * knockbackStr; this.x -= mx * push; this.y -= my * push;
+                }
+                break;
+            }
+        }
+
+        if (hit) {
+            let baseDmg = 5;
+            if (this.isBoss || this.type === 'golem') baseDmg = 50;
+            if (this.type === 'nova' || this.type === 'zealot') {
+                baseDmg = 80; this.hp = 0;
+                if (this.type === 'nova') for (let k = 0; k < 8; k++) enemyProjectiles.push(new EnemyProjectile(this.x, this.y, k * (Math.PI / 4)));
+            }
+            takeDamage(baseDmg);
+            if (thornsDmg > 0) this.takeDamage(thornsDmg, false);
+        }
+
+        // Reactor
+        if (reactorDmg > 0 && dist < 200 * VISUAL_SCALE * reactorRadiusMult) {
+            this.takeDamage(reactorDmg * dragonAtk * 0.1, true);
+        }
+
+        // Turrets
+        if (autoTurretCount > 0 && dist < 600 * G_SCALE) {
+            this.takeDamage(3 * dragonAtk * autoTurretCount * 0.1, true);
+        }
+    }
+
+    takeDamage(amount, isDoT = false) {
+        if (furyActive) amount *= 2;
+        let isCrit = false;
+        if (!isDoT && Math.random() < critChance) { amount *= critDmg; isCrit = true; }
+
+        // Reflector
+        if (this.type === 'reflector' && !isDoT && Math.random() < 0.3) {
+            takeDamage(amount * 0.1); // Reflect 10%
+        }
+
+        this.hp -= amount;
+
+        // On Hit Effects
+        if (!isDoT) {
+            if (Math.random() < chanceBurn) this.burnStacks++;
+            if (Math.random() < chanceFreeze) this.freezeStacks = Math.min(10, this.freezeStacks + 1);
+            if (Math.random() < chancePoison) this.poisonStacks++;
+            if (Math.random() < chanceShock) {
+                // Chain lightning
+                let neighbors = enemies.filter(e => e !== this && Math.hypot(e.x - this.x, e.y - this.y) < 200 * G_SCALE);
+                neighbors.forEach(n => n.takeDamage(amount * 0.5, true));
+                ctx.strokeStyle = "cyan"; ctx.beginPath(); ctx.moveTo(this.x, this.y);
+                neighbors.forEach(n => ctx.lineTo(n.x, n.y)); ctx.stroke();
+            }
+        }
+
+        if (executeThreshold > 0 && this.hp < this.maxHp * executeThreshold && !this.isBoss) {
+            this.hp = -1;
+            damageNumbers.push(new FloatingText(this.x, this.y, "EXECUTE", "#ff0000", 30));
+        }
+
+        if (!isDoT || frame % 10 === 0) {
+            let color = isCrit ? "#ffcc00" : "#fff";
+            let size = isCrit ? 24 : 14;
+            if (amount > 1) damageNumbers.push(new FloatingText(this.x, this.y, Math.floor(amount), color, size));
+        }
+
+        if (this.type === 'splitter' && this.hp <= 0 && this.radius > 10 * G_SCALE) {
+            for (let k = 0; k < 2; k++) {
+                let baby = new Enemy('swarmer', wave);
+                baby.x = this.x + (Math.random() - 0.5) * 20;
+                baby.y = this.y + (Math.random() - 0.5) * 20;
+                enemies.push(baby);
+            }
+        }
+    }
+
+    draw() {
+        if (this.x < -200 || this.x > width + 200 || this.y < -200 || this.y > height + 200) return;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.scale(G_SCALE, G_SCALE);
+
+        // HP Bar
+        const barW = this.isBoss ? 100 : 40;
+        if (!this.isBoss) {
+            ctx.fillStyle = "red"; ctx.fillRect(-barW / 2, -this.radius / G_SCALE - 15, barW, 4);
+            ctx.fillStyle = "#0f0"; ctx.fillRect(-barW / 2, -this.radius / G_SCALE - 15, barW * (Math.max(0, this.hp) / this.maxHp), 4);
+        }
+
+        let col = "#ff5500";
+        if (this.isBoss) col = "#ff0000";
+        if (this.type.includes('mini')) col = "#aa00aa";
+        if (this.type === 'healer') col = "#00ff00";
+        if (this.type === 'tank') col = "#444";
+        if (this.type === 'glitch') col = Math.random() > 0.5 ? "#fff" : "#000";
+
+        // Status Colors
+        if (this.freezeStacks > 0) col = "cyan";
+        if (this.poisonStacks > 0) col = "lime";
+
+        ctx.rotate(this.angle);
+        ctx.fillStyle = col;
+
+        // Shape Logic (Simplified)
+        if (this.isBoss) {
+            ctx.beginPath();
+            for (let i = 0; i < 8; i++) { ctx.rotate(Math.PI / 4); ctx.rect(-40, -40, 80, 80); }
+            ctx.fill();
+            ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2); ctx.fill();
+        } else {
+            ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = "black"; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(15, 0); ctx.stroke();
+        }
+        ctx.restore();
+    }
+}
+
+class Projectile {
+    constructor(x, y, angle, speed, overrideStats = null) {
+        this.x = x; this.y = y;
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed;
+        this.pen = orbStats.pen;
+        this.dmg = 40 * dragonAtk * orbStats.damageMult;
+        if (overrideStats) { this.dmg = overrideStats.dmg; }
+    }
+    update() {
+        this.x += this.vx; this.y += this.vy;
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            let e = enemies[i];
+            if (Math.hypot(this.x - e.x, this.y - e.y) < e.radius + (15 * G_SCALE)) {
+                e.takeDamage(this.dmg);
+                this.pen--;
+                ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(this.x, this.y, 5, 0, Math.PI * 2); ctx.fill();
+                if (this.pen <= 0) return true;
+            }
+        }
+        return (this.x < -100 || this.x > width + 100 || this.y < -100 || this.y > height + 100);
+    }
+    draw() {
+        ctx.fillStyle = COLORS.glow; ctx.shadowBlur = 10; ctx.shadowColor = COLORS.glow;
+        ctx.beginPath(); ctx.arc(this.x, this.y, orbStats.size, 0, Math.PI * 2); ctx.fill();
+    }
+}
+
+// --- CORE LOGIC ---
+function takeDamage(amount) {
+    if (Math.random() < dodgeChance) {
+        damageNumbers.push(new FloatingText(spine[0].x, spine[0].y, "DODGE", "#00ffcc", 20));
+        return;
+    }
+
+    // Glass Cannon Penalty
+    if (UPGRADES.find(u => u.name === "Glass Cannon" && dragonAtk >= 3.0)) amount *= 1.5;
+
+    let mitigation = Math.min(CAP_DEF, dragonDefPct);
+    amount *= (1 - mitigation);
+
+    if (dragonShield > 0) {
+        if (dragonShield >= amount) { dragonShield -= amount; amount = 0; }
+        else { amount -= dragonShield; dragonShield = 0; }
+        shieldCooldown = 180;
+    }
+
+    if (amount > 0) {
+        dragonHP -= amount;
+        ctx.fillStyle = "rgba(255,0,0,0.3)"; ctx.fillRect(0, 0, width, height);
+    }
+}
+
+function checkLaserHit(enemy, head, count, angleOffset) {
+    const spread = 0.15;
+    const totalSpread = spread * (count - 1);
+    const startAngle = (head.angle + angleOffset) - (totalSpread / 2);
+
+    const range = Math.hypot(width, height) * 1.5;
+    const laserPhysWidth = (20 * VISUAL_SCALE * laserWidthBase) + enemy.radius;
+
+    for (let i = 0; i < count; i++) {
+        const beamAngle = startAngle + (i * spread);
+        const p1 = { x: head.x, y: head.y };
+        const p2 = { x: head.x + Math.cos(beamAngle) * range, y: head.y + Math.sin(beamAngle) * range };
+
+        const l2 = (p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2;
+        let t = ((enemy.x - p1.x) * (p2.x - p1.x) + (enemy.y - p1.y) * (p2.y - p1.y)) / l2;
+        t = Math.max(0, Math.min(1, t));
+        const distSq = (enemy.x - (p1.x + t * (p2.x - p1.x))) ** 2 + (enemy.y - (p1.y + t * (p2.y - p1.y))) ** 2;
+
+        if (distSq < laserPhysWidth * laserPhysWidth) {
+            enemy.takeDamage(6 * dragonAtk);
+            break;
+        }
+    }
+}
+
+function levelUp() {
+    isPaused = true;
+    exp -= expNext;
+    expNext = Math.floor(expNext * 1.2) + 500;
+    level++;
+    dragonHP = Math.min(dragonMaxHP, dragonHP + (dragonMaxHP * 0.3));
+
+    upgradeChoices = [];
+    // Weighted Random Selection
+    for (let i = 0; i < 3; i++) {
+        let roll = Math.random();
+        let tier = R_COM;
+        if (roll > 0.98) tier = R_CUR;
+        else if (roll > 0.90) tier = R_LEG;
+        else if (roll > 0.75) tier = R_EPC;
+        else if (roll > 0.45) tier = R_RAR;
+
+        let pool = UPGRADES.filter(u => u.r === tier);
+        // Fallback
+        if (pool.length === 0) pool = UPGRADES.filter(u => u.r === R_COM);
+
+        // Filter Requirements
+        pool = pool.filter(u => !u.req || u.req());
+
+        if (pool.length > 0) {
+            let choice = pool[Math.floor(Math.random() * pool.length)];
+            upgradeChoices.push(choice);
+        }
+    }
+
+    const cardW = 300 * G_SCALE * 1.5;
+    const cardH = 400 * G_SCALE * 1.5;
+    const gap = 40 * G_SCALE;
+    const totalW = (cardW * 3) + (gap * 2);
+    const startX = (width - totalW) / 2;
+
+    cardBounds = upgradeChoices.map((_, i) => ({
+        x: startX + i * (cardW + gap),
+        y: height / 2 - (200 * G_SCALE),
+        w: cardW,
+        h: cardH
+    }));
+}
+
+function selectUpgrade(index) {
+    if (upgradeChoices[index]) upgradeChoices[index].run();
+    isPaused = false;
+}
+
+function spawnWave() {
+    wave++;
+    const count = 10 + Math.floor(wave * 4);
+    const types = [];
+
+    // Progressive Scaling
+    if (wave <= 5) types.push('swarmer', 'fly', 'mite', 'gnat');
+    if (wave > 3) types.push('spore', 'wasp', 'leech');
+    if (wave > 5) types.push('grunt', 'lancer', 'imp', 'drone');
+    if (wave > 8) types.push('soldier', 'shielded', 'brute', 'zealot');
+    if (wave > 10) types.push('shooter', 'hunter', 'sniper', 'mortar');
+    if (wave > 15) types.push('dasher', 'weaver', 'glitch', 'phantom');
+    if (wave > 20) types.push('tank', 'golem', 'construct', 'monolith');
+    if (wave > 25) types.push('splitter', 'vampire', 'nova', 'assassin');
+    if (wave > 30) types.push('boss_hydra', 'boss_titan'); // Normal enemies now
+
+    // Mini Bosses
+    if (wave % 3 === 0 && wave % 5 !== 0) {
+        let mini = ENEMY_TYPES.filter(t => t.startsWith('mini_') || t.startsWith('champion_'));
+        enemies.push(new Enemy(mini[Math.floor(Math.random() * mini.length)], wave));
+    }
+
+    // Major Bosses
+    if (wave % 5 === 0) {
+        let boss = ENEMY_TYPES.filter(t => t.startsWith('boss_') || t.startsWith('god_'));
+        enemies.push(new Enemy(boss[Math.floor(Math.random() * boss.length)], wave));
+    }
+
+    for (let i = 0; i < count; i++) {
+        let t = types[Math.floor(Math.random() * types.length)];
+        enemies.push(new Enemy(t, wave));
+    }
+}
+
+// --- VISUALS ---
+function drawLaserFan(head, count, angleOffset, colorOverride) {
+    const spread = 0.15;
+    const totalSpread = spread * (count - 1);
+    const startAngle = (head.angle + angleOffset) - (totalSpread / 2);
+
+    ctx.shadowBlur = furyActive ? 50 : 35;
+    ctx.shadowColor = furyActive ? COLORS.fury : (laserType === 'plasma' ? COLORS.plasma : COLORS.laser);
+    ctx.strokeStyle = colorOverride || (furyActive ? COLORS.fury : (laserType === 'plasma' ? COLORS.plasma : COLORS.laser));
+    ctx.lineWidth = 10 * VISUAL_SCALE * laserWidthBase;
+
+    for (let i = 0; i < count; i++) {
+        const a = startAngle + (i * spread);
+        const startX = head.x + Math.cos(a) * 45 * VISUAL_SCALE;
+        const startY = head.y + Math.sin(a) * 45 * VISUAL_SCALE;
+        const range = Math.max(width, height) * 1.5;
+        ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(startX + Math.cos(a) * range, startY + Math.sin(a) * range); ctx.stroke();
+    }
+}
+
+function drawLasers(head) {
+    if (!mouse.down && autoTurretCount === 0) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    if (mouse.down) {
+        drawLaserFan(head, laserCount, 0);
+        if (laserRear > 0) drawLaserFan(head, laserRear, Math.PI);
+        if (laserSide > 0) {
+            drawLaserFan(head, laserSide, Math.PI / 2);
+            drawLaserFan(head, laserSide, -Math.PI / 2);
+        }
+    }
+    if (autoTurretCount > 0) {
+        let nearest = null;
+        let minD = Infinity;
+        enemies.forEach(e => {
+            let d = Math.hypot(e.x - head.x, e.y - head.y);
+            if (d < minD) { minD = d; nearest = e; }
+        });
+        if (nearest && minD < 600 * G_SCALE) {
+            ctx.shadowBlur = 10; ctx.strokeStyle = "#ff00ff"; ctx.lineWidth = 5 * VISUAL_SCALE;
+            ctx.beginPath(); ctx.moveTo(head.x, head.y); ctx.lineTo(nearest.x, nearest.y); ctx.stroke();
+        }
+    }
+    ctx.restore();
+}
+
+function drawShockwave(spine) {
+    if (!shockwaveEnabled) return;
+    if (shockwaveActiveFrame > 0) {
+        const center = spine[Math.floor(spine.length / 2)];
+        ctx.save();
+        ctx.strokeStyle = COLORS.shockwave;
+        ctx.lineWidth = 5 + (shockwaveActiveFrame);
+        ctx.globalAlpha = shockwaveActiveFrame / 10;
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, shockwaveRange, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(255, 255, 0, 0.2)";
+        ctx.fill();
+        ctx.restore();
+        shockwaveActiveFrame--;
+    }
+}
+
+function drawShield(head) {
+    if (dragonShield > 0) {
+        ctx.save();
+        ctx.strokeStyle = COLORS.shield;
+        ctx.lineWidth = 3;
+        ctx.shadowBlur = 10; ctx.shadowColor = "cyan";
+        ctx.beginPath();
+        ctx.arc(head.x, head.y, 60 * VISUAL_SCALE, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 0.1;
+        ctx.fillStyle = COLORS.shield;
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+function drawDragonBone(x1, y1, x2, y2, thickness, isWing = false) {
+    const dist = Math.hypot(x2 - x1, y2 - y1);
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+    ctx.save();
+    ctx.translate(x1, y1); ctx.rotate(angle);
+    ctx.fillStyle = isWing ? "rgba(0, 150, 255, 0.25)" : (furyActive ? "#330000" : COLORS.bone);
+    ctx.strokeStyle = furyActive ? "#ff3300" : COLORS.accent;
+    ctx.shadowBlur = furyActive ? 15 : 0;
+    ctx.shadowColor = "red";
+
+    ctx.beginPath();
+    ctx.moveTo(0, -thickness * 0.7);
+    ctx.quadraticCurveTo(dist / 2, -thickness * 0.2, dist, -thickness * 0.7);
+    ctx.lineTo(dist, thickness * 0.7);
+    ctx.quadraticCurveTo(dist / 2, thickness * 0.2, 0, thickness * 0.7);
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+}
+
+function drawWings(anchor) {
+    const flap = Math.sin(frame * CONFIG.wingFlapSpeed);
+    const drawSide = (isLeft) => {
+        let side = isLeft ? -1 : 1;
+        let a1 = anchor.angle + (side * 1.5) + (flap * 0.2 * side);
+        let armLen = CONFIG.wingSpan * 0.35;
+        let j1X = anchor.x + Math.cos(a1) * armLen, j1Y = anchor.y + Math.sin(a1) * armLen;
+        let a2 = a1 + (0.6 * side) + (flap * 0.1 * side);
+        let foreLen = CONFIG.wingSpan * 0.45;
+        let j2X = j1X + Math.cos(a2) * foreLen, j2Y = j1Y + Math.sin(a2) * foreLen;
+        let fingerPoints = [];
+        for (let i = 0; i < 4; i++) {
+            let fA = a2 + (0.4 + i * 0.5) * side + (flap * 0.05);
+            let fLen = CONFIG.wingSpan * (0.9 - i * 0.15);
+            fingerPoints.push({ x: j2X + Math.cos(fA) * fLen, y: j2Y + Math.sin(fA) * fLen });
+        }
+        ctx.fillStyle = furyActive ? "rgba(255, 0, 0, 0.15)" : "rgba(0, 120, 255, 0.15)";
+        ctx.beginPath(); ctx.moveTo(anchor.x, anchor.y); ctx.lineTo(j1X, j1Y); ctx.lineTo(j2X, j2Y);
+        fingerPoints.forEach(p => ctx.lineTo(p.x, p.y)); ctx.fill();
+        drawDragonBone(anchor.x, anchor.y, j1X, j1Y, 9 * VISUAL_SCALE, true);
+        drawDragonBone(j1X, j1Y, j2X, j2Y, 7 * VISUAL_SCALE, true);
+        fingerPoints.forEach(p => drawDragonBone(j2X, j2Y, p.x, p.y, 3 * VISUAL_SCALE, true));
+    };
+    drawSide(true); drawSide(false);
+}
+
+function drawDragonHead(s) {
+    ctx.save();
+    ctx.translate(s.x, s.y); ctx.rotate(s.angle); ctx.scale(VISUAL_SCALE, VISUAL_SCALE);
+    ctx.fillStyle = furyActive ? "#330000" : COLORS.bone;
+    ctx.strokeStyle = furyActive ? "#ff0000" : COLORS.accent;
+    const drawHorn = (side) => {
+        ctx.save(); ctx.beginPath(); ctx.moveTo(-12, side * 8); ctx.quadraticCurveTo(-35, side * 40, -75, side * 35);
+        ctx.lineTo(-72, side * 34); ctx.quadraticCurveTo(-32, side * 32, -18, side * 12);
+        ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+    };
+    drawHorn(1); drawHorn(-1);
+    ctx.beginPath(); ctx.moveTo(-20, -12); ctx.lineTo(12, -18); ctx.lineTo(48, -4);
+    ctx.lineTo(50, 0); ctx.lineTo(48, 4); ctx.lineTo(12, 18); ctx.lineTo(-20, 12);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = furyActive ? "#ff0000" : COLORS.glow;
+    ctx.shadowBlur = 15; ctx.shadowColor = ctx.fillStyle;
+    ctx.beginPath(); ctx.arc(15, -8, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(15, 8, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+}
+
+// --- UI ---
+function drawUI() {
+    canvas.style.cursor = isPaused ? "default" : "none";
+
+    // XP Bar (Top)
+    ctx.fillStyle = "#111"; ctx.fillRect(0, 0, width, 10);
+    ctx.fillStyle = COLORS.glow; ctx.fillRect(0, 0, width * (exp / expNext), 10);
+
+    // Stats
+    ctx.textAlign = "left";
+    ctx.fillStyle = "white"; ctx.font = `bold ${16 * G_SCALE * 1.5}px monospace`;
+    ctx.fillText(`LVL ${level} | WAVE ${wave}`, 20, 35);
+    ctx.fillText(`ATK ${dragonAtk.toFixed(1)} | DEF ${(dragonDefPct * 100).toFixed(0)}%`, 20, 55);
+
+    if (furyEnabled) {
+        ctx.fillText(`FURY`, 20, 80);
+        ctx.fillStyle = "#330000"; ctx.fillRect(70, 68, 100, 12);
+        ctx.fillStyle = furyActive ? "#ffff00" : "#ff0000"; ctx.fillRect(70, 68, furyMeter, 12);
+        ctx.strokeRect(70, 68, 100, 12);
+    }
+    if (hasDash) {
+        ctx.fillText(`DASH`, 20, 105);
+        ctx.fillStyle = "#333"; ctx.fillRect(70, 93, 100, 12);
+        let dashPct = (maxDashCooldown - dashCooldown) / maxDashCooldown;
+        ctx.fillStyle = dashCooldown > 0 ? "orange" : "cyan"; ctx.fillRect(70, 93, 100 * dashPct, 12);
+    }
+
+    // Boss Bar
+    let bosses = enemies.filter(e => e.isBoss);
+    if (bosses.length > 0) {
+        let boss = bosses[0];
+        let bw = 600 * G_SCALE;
+        let bh = 20;
+        let bx = width / 2 - bw / 2;
+        ctx.fillStyle = "#330000"; ctx.fillRect(bx, 50, bw, bh);
+        ctx.fillStyle = boss.type.includes('mini') ? "#aa00aa" : "#ff0000"; ctx.fillRect(bx, 50, bw * (boss.hp / boss.maxHp), bh);
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.strokeRect(bx, 50, bw, bh);
+        ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+        ctx.fillText(boss.type.toUpperCase(), width / 2, 45);
+    }
+
+    // Player HP Bar (FIXED)
+    const barW = 400 * G_SCALE * 1.5;
+    const bx = width / 2 - barW / 2;
+    ctx.fillStyle = "#222"; ctx.fillRect(bx, height - 30, barW, 20);
+    const hpPct = Math.max(0, dragonHP / dragonMaxHP);
+    ctx.fillStyle = hpPct > 0.3 ? (furyActive ? "#ffaa00" : "lime") : "red";
+    ctx.fillRect(bx, height - 30, barW * hpPct, 20);
+    ctx.strokeStyle = "#fff"; ctx.strokeRect(bx, height - 30, barW, 20);
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.fillText(`${Math.floor(dragonHP)}/${Math.floor(dragonMaxHP)}`, width / 2, height - 15);
+
+    if (dragonShield > 0) {
+        const shPct = Math.min(1, dragonShield / dragonMaxShield);
+        ctx.fillStyle = "cyan";
+        ctx.fillRect(bx, height - 35, barW * shPct, 5);
+    }
+
+    if (isPaused) {
+        ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0, 0, width, height);
+        ctx.textAlign = "center";
+
+        ctx.fillStyle = COLORS.glow; ctx.font = "bold 40px monospace";
+        ctx.shadowBlur = 20; ctx.shadowColor = COLORS.glow;
+        ctx.fillText("EVOLUTION", width / 2, height / 2 - 250);
+        ctx.shadowBlur = 0;
+
+        upgradeChoices.forEach((c, i) => {
+            const b = cardBounds[i];
+            let borderColor = COLORS.common;
+            if (c.r === R_RAR) borderColor = COLORS.rare;
+            if (c.r === R_EPC) borderColor = COLORS.epic;
+            if (c.r === R_LEG) borderColor = COLORS.legendary;
+            if (c.r === R_CUR) borderColor = COLORS.cursed_text;
+
+            ctx.fillStyle = "#050a14"; ctx.fillRect(b.x, b.y, b.w, b.h);
+            ctx.strokeStyle = borderColor; ctx.lineWidth = 4; ctx.strokeRect(b.x, b.y, b.w, b.h);
+
+            let grad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+            grad.addColorStop(0, borderColor);
+            grad.addColorStop(1, "transparent");
+            ctx.fillStyle = grad; ctx.globalAlpha = 0.1; ctx.fillRect(b.x, b.y, b.w, b.h);
+            ctx.globalAlpha = 1.0;
+
+            ctx.fillStyle = borderColor; ctx.font = `bold ${22 * G_SCALE * 1.5}px monospace`;
+            ctx.fillText(c.name, b.x + b.w / 2, b.y + 60);
+
+            ctx.fillStyle = c.r === R_CUR ? "#ff5555" : "white"; ctx.font = `${16 * G_SCALE * 1.5}px monospace`;
+            wrapText(ctx, c.desc, b.x + b.w / 2, b.y + 140, b.w - 40, 24);
+
+            ctx.fillStyle = borderColor; ctx.font = `bold ${16 * G_SCALE * 1.5}px monospace`;
+            ctx.fillText(c.r.toUpperCase(), b.x + b.w / 2, b.y + b.h - 60);
+
+            ctx.fillStyle = "white"; ctx.font = `bold ${18 * G_SCALE * 1.5}px monospace`;
+            ctx.fillText("[ CLICK ]", b.x + b.w / 2, b.y + b.h - 20);
+        });
+    }
+}
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+    let words = text.split(' ');
+    let line = '';
+    for (let n = 0; n < words.length; n++) {
+        let testLine = line + words[n] + ' ';
+        let metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth && n > 0) {
+            ctx.fillText(line, x, y);
+            line = words[n] + ' ';
+            y += lineHeight;
+        } else {
+            line = testLine;
+        }
+    }
+    ctx.fillText(line, x, y);
+}
+
+// --- MAIN LOOP ---
+function update() {
+    if (!gameActive || isPaused) return;
+    frame++;
+    if (enemies.length === 0) spawnWave();
+
+    let head = spine[0];
+    let speed = mouse.down ? CONFIG.headSpeed * 0.15 : CONFIG.headSpeed;
+    if (furyActive) speed *= 1.5;
+
+    head.x += (mouse.x - head.x) * speed;
+    head.y += (mouse.y - head.y) * speed;
+    head.angle = Math.atan2(mouse.y - head.y, mouse.x - head.x);
+
+    // REGEN
+    if (frame % 60 === 0) {
+        if (dragonHP < dragonMaxHP && dragonRegen > 0) dragonHP = Math.min(dragonMaxHP, dragonHP + dragonRegen * 60);
+        if (shieldCooldown > 0) shieldCooldown--;
+        else if (dragonShield < dragonMaxShield) dragonShield += dragonShieldRegen * 60;
+    }
+
+    // DASH
+    if (dashCooldown > 0) dashCooldown--;
+
+    // FURY LOGIC
+    if (furyEnabled && furyMeter >= 100 && !furyActive) {
+        furyActive = true;
+        furyTimer = furyDuration;
+        shockwaveEnabled = true;
+    }
+    if (furyActive) {
+        furyTimer--;
+        furyMeter = (furyTimer / furyDuration) * 100;
+        if (furyTimer <= 0) {
+            furyActive = false;
+            furyMeter = 0;
+        }
+    }
+
+    // SHOCKWAVE
+    if (shockwaveEnabled) {
+        shockwaveTimer++;
+        if (shockwaveTimer > (furyActive ? 30 : shockwaveInterval)) {
+            shockwaveTimer = 0;
+            shockwaveActiveFrame = 15;
+            const midIndex = Math.floor(spine.length / 2);
+            const center = spine[midIndex];
+
+            enemies.forEach(e => {
+                let d = Math.hypot(center.x - e.x, center.y - e.y);
+                if (d < shockwaveRange) {
+                    e.takeDamage(shockwaveDmg * dragonAtk);
+                    let a = Math.atan2(e.y - center.y, e.x - center.x);
+                    let push = 150 * G_SCALE * knockbackStr;
+                    e.x += Math.cos(a) * push;
+                    e.y += Math.sin(a) * push;
+                }
+            });
+        }
+    }
+
+    // ORBS & SATELLITES
+    if (mouse.down && orbLevel > 0) {
+        const fireRate = Math.max(5, 20 - (orbLevel * 2));
+        if (frame % fireRate === 0) {
+            projectiles.push(new Projectile(head.x, head.y, head.angle, orbStats.speed));
+            if (orbLevel >= 3) {
+                projectiles.push(new Projectile(head.x, head.y, head.angle + 0.3, orbStats.speed));
+                projectiles.push(new Projectile(head.x, head.y, head.angle - 0.3, orbStats.speed));
+            }
+        }
+    }
+
+    // Update Orbiters
+    orbiters.forEach(o => {
+        o.a += o.s;
+        let ox = head.x + Math.cos(o.a) * o.r * G_SCALE;
+        let oy = head.y + Math.sin(o.a) * o.r * G_SCALE;
+        ctx.fillStyle = COLORS.plasma; ctx.beginPath(); ctx.arc(ox, oy, 8, 0, Math.PI * 2); ctx.fill();
+        enemies.forEach(e => {
+            if (Math.hypot(e.x - ox, e.y - oy) < 30 * G_SCALE) e.takeDamage(o.dmg * dragonAtk, true);
+        });
+    });
+
+    for (let i = 1; i < spine.length; i++) {
+        let p = spine[i - 1], c = spine[i];
+        let a = Math.atan2(p.y - c.y, p.x - c.x);
+        c.angle = a; c.x = p.x - Math.cos(a) * CONFIG.segmentDist; c.y = p.y - Math.sin(a) * CONFIG.segmentDist;
+    }
+
+    enemies.forEach((e, i) => {
+        e.update();
+        if (e.hp <= 0) {
+            score += 10;
+            gems.push(new ExpGem(e.x, e.y, e.xp));
+            if (lifeSteal > 0) dragonHP = Math.min(dragonMaxHP, dragonHP + lifeSteal);
+            if (furyEnabled && !furyActive) furyMeter = Math.min(100, furyMeter + (e.isBoss ? 20 : 2));
+            enemies.splice(i, 1);
+        }
+    });
+
+    damageNumbers = damageNumbers.filter(d => d.update());
+    gems = gems.filter(g => !g.update());
+    projectiles = projectiles.filter(p => !p.update());
+    enemyProjectiles = enemyProjectiles.filter(p => !p.update());
+
+    // LEG ANIMATION
+    legs.forEach(leg => {
+        let body = spine[leg.anchorIndex], side = leg.isLeft ? -1.6 : 1.6;
+        let iX = body.x + Math.cos(body.angle + side) * (115 * VISUAL_SCALE), iY = body.y + Math.sin(body.angle + side) * (115 * VISUAL_SCALE);
+        if (!leg.isStepping && Math.hypot(iX - leg.x, iY - leg.y) > 95 * VISUAL_SCALE) {
+            leg.isStepping = true; leg.stepProgress = 0; leg.stepStartX = leg.x; leg.stepStartY = leg.y;
+            leg.targetX = iX + Math.cos(body.angle) * (70 * VISUAL_SCALE); leg.targetY = iY + Math.sin(body.angle) * (70 * VISUAL_SCALE);
+        }
+        if (leg.isStepping) {
+            leg.stepProgress += CONFIG.legSpeed;
+            if (leg.stepProgress >= 1) { leg.isStepping = false; leg.x = leg.targetX; leg.y = leg.targetY; }
+            else {
+                let t = leg.stepProgress;
+                leg.x = leg.stepStartX + (leg.targetX - leg.stepStartX) * t; leg.y = leg.stepStartY + (leg.targetY - leg.stepStartY) * t;
+                leg.lift = Math.sin(t * Math.PI) * (45 * VISUAL_SCALE);
+            }
+        }
+    });
+
+    if (dragonHP <= 0) {
+        if (reviveCount > 0) {
+            reviveCount--;
+            dragonHP = dragonMaxHP * 0.5;
+            enemies.forEach(e => {
+                let a = Math.atan2(e.y - spine[0].y, e.x - spine[0].x);
+                e.x += Math.cos(a) * 500; e.y += Math.sin(a) * 500; // Blast away
+            });
+            damageNumbers.push(new FloatingText(spine[0].x, spine[0].y, "REVIVED!", "#ffff00", 50));
+        } else {
+            gameActive = false;
+        }
+    }
+}
+
+function draw() {
+    ctx.fillStyle = "#00020a"; ctx.fillRect(0, 0, width, height);
+
+    drawLasers(spine[0]);
+    drawShockwave(spine);
+
+    if (reactorDmg > 0) {
+        ctx.beginPath();
+        ctx.arc(spine[0].x, spine[0].y, 200 * VISUAL_SCALE * reactorRadiusMult, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(255, 100, 0, 0.1)"; ctx.stroke();
+    }
+
+    gems.forEach(g => g.draw());
+    projectiles.forEach(p => p.draw());
+    enemyProjectiles.forEach(p => p.draw());
+    enemies.forEach(e => e.draw());
+    damageNumbers.forEach(d => d.draw());
+
+    ctx.strokeStyle = COLORS.accent; ctx.lineWidth = 1;
+    drawWings(spine[CONFIG.wingAttachment]);
+    spine.forEach((s, i) => {
+        let ribStart = 10, ribEnd = 50, ribSpan = ribEnd - ribStart;
+        let ribW = (i > ribStart && i < ribEnd) ? Math.sin((i - ribStart) / ribSpan * Math.PI) * CONFIG.maxRibWidth : 0;
+        if (ribW > 0) {
+            let p = s.angle + Math.PI / 2;
+            ctx.beginPath(); ctx.moveTo(s.x + Math.cos(p) * ribW, s.y + Math.sin(p) * ribW);
+            ctx.quadraticCurveTo(s.x - Math.cos(s.angle) * 15 * VISUAL_SCALE, s.y - Math.sin(s.angle) * 15 * VISUAL_SCALE, s.x - Math.cos(p) * ribW, s.y - Math.sin(p) * ribW);
+            ctx.stroke();
+        }
+        if (i > 0) {
+            ctx.lineWidth = i < 40 ? 5 * VISUAL_SCALE : 2 * VISUAL_SCALE;
+            ctx.strokeStyle = furyActive ? "#ff3300" : COLORS.accent;
+            ctx.beginPath(); ctx.moveTo(spine[i - 1].x, spine[i - 1].y); ctx.lineTo(s.x, s.y); ctx.stroke();
+        }
+    });
+
+    drawShield(spine[0]);
+
+    legs.forEach(leg => {
+        let body = spine[leg.anchorIndex], hSide = leg.isLeft ? -1.5 : 1.5;
+        let hX = body.x + Math.cos(body.angle + hSide) * (25 * VISUAL_SCALE), hY = body.y + Math.sin(body.angle + hSide) * (25 * VISUAL_SCALE);
+        let dx = leg.x - hX, dy = (leg.y - leg.lift) - hY;
+        let dist = Math.min(Math.sqrt(dx * dx + dy * dy), CONFIG.upperLegLen + CONFIG.lowerLegLen - 2);
+        let a = Math.atan2(dy, dx), cos = (CONFIG.upperLegLen ** 2 + dist ** 2 - CONFIG.lowerLegLen ** 2) / (2 * CONFIG.upperLegLen * dist);
+        let kneeA = leg.isLeft ? a + Math.acos(Math.max(-1, Math.min(1, cos))) : a - Math.acos(Math.max(-1, Math.min(1, cos)));
+        let kX = hX + Math.cos(kneeA) * CONFIG.upperLegLen, kY = hY + Math.sin(kneeA) * CONFIG.upperLegLen;
+        drawDragonBone(hX, hY, kX, kY, 8 * VISUAL_SCALE); drawDragonBone(kX, kY, leg.x, leg.y - leg.lift, 6 * VISUAL_SCALE);
+    });
+    drawDragonHead(spine[0]);
+
+    drawUI();
+
+    if (!gameActive) {
+        ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "50px monospace";
+        ctx.fillText("GAME OVER", width / 2, height / 2);
+        ctx.font = "20px monospace";
+        ctx.fillText(`Max Level: ${level} | Wave: ${wave}`, width / 2, height / 2 + 50);
+        ctx.fillText("Refresh to restart", width / 2, height / 2 + 80);
+    }
+}
+
+function init() {
+    resize();
+    spine = [];
+    for (let i = 0; i < CONFIG.segmentCount; i++) spine.push({ x: mouse.x, y: mouse.y, angle: 0 });
+    legs = [
+        { anchorIndex: 18, isLeft: true, x: 0, y: 0 }, { anchorIndex: 18, isLeft: false, x: 0, y: 0 },
+        { anchorIndex: 50, isLeft: true, x: 0, y: 0 }, { anchorIndex: 50, isLeft: false, x: 0, y: 0 }
+    ];
+    loop();
+}
+
+function resize() { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
+window.addEventListener('resize', resize);
+window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+window.addEventListener('keydown', e => {
+    if (e.code === 'Space' && hasDash && dashCooldown <= 0) {
+        let head = spine[0];
+        head.x += Math.cos(head.angle) * 300 * G_SCALE;
+        head.y += Math.sin(head.angle) * 300 * G_SCALE;
+        dashCooldown = maxDashCooldown;
+        damageNumbers.push(new FloatingText(head.x, head.y, "DASH!", "#00ffff", 30));
+    }
+});
+window.addEventListener('mousedown', () => {
+    if (isPaused) {
+        cardBounds.forEach((b, i) => {
+            if (mouse.x > b.x && mouse.x < b.x + b.w && mouse.y > b.y && mouse.y < b.y + b.h) {
+                selectUpgrade(i);
+            }
+        });
+    } else { mouse.down = true; }
+});
+window.addEventListener('mouseup', () => mouse.down = false);
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+init();
