@@ -6,103 +6,119 @@ let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2, down: false }
 let frame = 0;
 
 // --- GLOBAL SCALING ---
-const G_SCALE = 0.5; 
+const G_SCALE = 0.5;
 
-// --- THEME & RARITY ---
+// --- THEME & COLORS ---
 const COLORS = {
     bone: "#001a4d", accent: "#0066ff", glow: "#00ffff", laser: "#ccf2ff",
-    plasma: "#ff00ff", enemyProj: "#ff3333", shield: "rgba(0, 255, 255, 0.3)",
+    plasma: "#ff00ff", void: "#5500aa", enemyProj: "#ff3333", shield: "rgba(0, 255, 255, 0.3)",
     shockwave: "rgba(255, 255, 0, 0.4)", bossBar: "#ff0000", fury: "#ff3300",
     cursed: "#800080",
     common: "#b0b0b0", rare: "#0088ff", epic: "#9900ff", legendary: "#ffaa00", mythic: "#00ffcc"
 };
 
 // --- GAME STATE ---
-let dragonHP = 18000; 
+let dragonHP = 18000;
 let dragonMaxHP = 18000;
 let dragonShield = 0;
 let dragonMaxShield = 0;
-let dragonShieldRegen = 0; 
+let dragonShieldRegen = 0;
 let shieldCooldown = 0;
 
 // --- CAPS & CONFIG ---
-const CAP_DEF = 0.50;  
-const CAP_DODGE = 0.60; // Increased cap for Ghost builds
-const CAP_CRIT_DMG = 5.0; 
+const CAP_DEF = 0.75; 
+const CAP_DODGE = 0.80;
+const CAP_CRIT_DMG = 10.0;
 const CAP_CRIT_CHANCE = 1.0;
+const BASE_VISUAL_SCALE = 0.6 * G_SCALE; // Reference for size scaling
 
 const MAX_LASER_MAIN = 12;
 const MAX_LASER_SIDE = 8;
 const MAX_LASER_REAR = 6;
 
 // --- STATS ---
-let dragonDefPct = 0; 
-let dragonAtk = 1;
-let dragonRegen = 0.2; 
+let dragonDefPct = 0;
+let dragonBaseAtk = 1; // Base attack before size modifiers
+let dragonAtk = 1;     // Final calculated attack
+let dragonRegen = 0.2;
 let xpMultiplier = 1.0;
-let lifeSteal = 0; 
-let dodgeChance = 0; 
+let lifeSteal = 0;
+let dodgeChance = 0;
 let globalSlow = 1.0;
 let tailDmgMult = 1.0;
 let critChance = 0.05;
-let critDmg = 1.5;     
+let critDmg = 1.5;
 let thornsDmg = 0;
 let knockbackStr = 1.0;
-let executeThreshold = 0; 
+let executeThreshold = 0;
 let dmgTakenMult = 1.0;
-let laserDmgMult = 1.0; 
-let fireRateMult = 1.0; 
+let laserDmgMult = 1.0;
+let fireRateMult = 1.0;
 
-// --- SPECIAL MECHANICS ---
+// --- SPECIAL MECHANICS & TREES ---
+// 1. SHIELD
 let unlockedShield = false;
+let shieldExplode = false;
+let shieldAmpDmg = false;
+let shieldAmpFire = false;
+let shieldStunBreak = false;
+
+// 2. FURY
 let unlockedFury = false;
-let unlockedOrbs = false;
-let unlockedMissiles = false;
-let unlockedMines = false;
-let unlockedStatic = false; 
-
-// Ghost Tree
-let unlockedGhost = false;
-let ghostActive = false; // Always true if unlocked, or toggle? Let's make it a passive form.
-let ghostDmg = 0; // Poltergeist damage
-let ghostPhaseShift = false; // Teleport on hit
-
-// Fury Tree
 let furyEnabled = false;
 let furyMeter = 0;
 let furyActive = false;
 let furyTimer = 0;
 let furyDuration = 600;
-let furyExplosion = false; // Hellfire upgrade
-let furyInvuln = false;    // Undying Rage upgrade
+let furyExplosion = false;
+let furyInvuln = false;
+let furyRegenPassive = 0; 
+let furyIgnition = false; // Burn aura
+let furyEndExplosion = false;
+
+// 3. GHOST
+let unlockedGhost = false;
+let ghostActive = false; 
+let ghostMeter = 0; 
+let ghostMaxMeter = 100;
+let ghostRegen = 0;
+let ghostDmg = 0;
+let ghostPhaseShift = false;
+let ghostEcto = false; // Slows enemies
+
+// 4. WEAPONS
+let unlockedOrbs = false;
+let unlockedMissiles = false;
+let unlockedMines = false;
+let unlockedSaw = false; 
+let sawCount = 0;
+let unlockedBoomerang = false; // New
+let boomerangCount = 0;
+let unlockedGrenade = false; // New
+let grenadeCount = 0;
+let grenadeCluster = false;
+let grenadeNapalm = false;
 
 // Utils
 let autoTurretCount = 0;
 let magnetRange = 1.0;
-let hasBloodLust = false; 
+let hasBloodLust = false;
 let reviveCount = 0;
 let timeStopChance = 0;
 let timeStopActive = false;
 let timeStopTimer = 0;
 let chainLightningChance = 0;
-let poisonDmg = 0;
-let burnDmg = 0;
 let missileCount = 0;
-let mineTimer = 0;
-let auraFireDmg = 0;
-let auraIceSlow = 0;
-let summonDrakeCount = 0;
-let ricochetCount = 0;
-let fearChance = 0;
-let webbedTimer = 0;
 
-// Shield Specials
-let shieldExplode = false; 
-let shieldAmpDmg = false; 
-let shieldAmpFire = false; 
-let shieldStunBreak = false;
+// Status Effect Chances
+let poisonChance = 0;
+let burnChance = 0;
+let freezeChance = 0;
+let weakChance = 0; 
+let vulnChance = 0; 
 
-let tailTurret = false; 
+// Special Toggles
+let tailTurret = false;
 let discoMode = false;
 let gamblerMode = false;
 let gamblerTimer = 0;
@@ -123,42 +139,43 @@ let wave = 0;
 let score = 0;
 let gameActive = true;
 let isPaused = false;
-let canReroll = false; 
+let canReroll = false;
 
-// Weapons
+// Weapons Config
 let laserCount = 1;
 let laserWidthBase = 1;
 let laserRear = 0;
 let laserSide = 0;
-let laserType = 'normal'; 
+let laserType = 'normal'; // normal, plasma, void, shotgun
 let orbLevel = 0;
 let orbStats = { speed: 8 * G_SCALE, size: 10 * G_SCALE, pen: 1, damageMult: 1, count: 1 };
-let reactorDmg = 0; 
+let reactorDmg = 0;
 let reactorRadiusMult = 1.0;
 
 // Entities
 let enemies = [];
 let projectiles = [];
+let saws = []; 
 let enemyProjectiles = [];
 let gems = [];
 let upgradeChoices = [];
 let cardBounds = [];
 let damageNumbers = [];
-let summons = [];
+let summons = []; // Missiles, Mines, Grenades, Boomerangs
 let lightningEffects = [];
-let myUpgrades = []; 
+let myUpgrades = [];
 
 // --- DRAGON SPECS ---
-let VISUAL_SCALE = 0.6 * G_SCALE;
+let VISUAL_SCALE = BASE_VISUAL_SCALE;
 const CONFIG = {
     segmentCount: 85,
-    segmentDist: 8 * VISUAL_SCALE, 
-    headSpeed: 0.015, 
-    maxRibWidth: 42 * VISUAL_SCALE, 
+    segmentDist: 8 * VISUAL_SCALE,
+    headSpeed: 0.015,
+    maxRibWidth: 42 * VISUAL_SCALE,
     legSpeed: 0.05,
-    upperLegLen: 75 * VISUAL_SCALE, 
-    lowerLegLen: 85 * VISUAL_SCALE, 
-    wingSpan: 340 * VISUAL_SCALE,   
+    upperLegLen: 75 * VISUAL_SCALE,
+    lowerLegLen: 85 * VISUAL_SCALE,
+    wingSpan: 340 * VISUAL_SCALE,
     wingFlapSpeed: 0.03,
     wingAttachment: 18
 };
@@ -178,125 +195,25 @@ function addMaxHP(pct) {
 }
 function romanize(num) {
     if (num === 1) return "I"; if (num === 2) return "II";
-    if (num === 3) return "III"; if (num === 4) return "IV"; 
+    if (num === 3) return "III"; if (num === 4) return "IV";
     if (num === 5) return "V"; return "X";
 }
-
-// --- UPGRADES DATABASE ---
-const UPGRADES = [
-    // --- COMMON (Tier 1) ---
-    { r: 0, type: 'def', name: "Thick Skin", desc: "Max Health +10%", run: () => addMaxHP(0.1) },
-    { r: 0, type: 'def', name: "Regen Cell", desc: "Regen +1 HP/frame", run: () => dragonRegen += 1 },
-    { r: 0, type: 'def', name: "Hard Scales", desc: "Defense +5% (Max 50%)", run: () => dragonDefPct = Math.min(CAP_DEF, dragonDefPct + 0.05) },
-    { r: 0, type: 'def', name: "Spikes", desc: "Enemies take 20 DMG on touch", run: () => thornsDmg += 20 },
-    { r: 0, type: 'wep', name: "Extra Barrel", desc: "+1 Main Beam (-10% Dmg)", req: () => laserCount < MAX_LASER_MAIN, run: () => { laserCount++; laserDmgMult *= 0.90; } },
-    { r: 0, type: 'wep', name: "Focus Lens", desc: "Beams are 10% wider", run: () => laserWidthBase += 0.1 },
-    { r: 0, type: 'wep', name: "Sharpen", desc: "Attack Damage +10%", run: () => dragonAtk += 0.1 },
-    { r: 0, type: 'util', name: "Magnetism", desc: "Pickup Range +25%", run: () => magnetRange *= 1.25 },
-    { r: 0, type: 'util', name: "Learning", desc: "XP Gain +10%", run: () => xpMultiplier += 0.1 },
-    { r: 0, type: 'wep', name: "Rear Shot", desc: "Add Rear Laser (-5% Dmg)", req: () => laserRear < MAX_LASER_REAR, run: () => { laserRear++; laserDmgMult *= 0.95; } },
-    { r: 0, type: 'wep', name: "Side Cannons", desc: "Add Side Lasers (-5% Dmg)", req: () => laserSide < MAX_LASER_SIDE, run: () => { laserSide++; laserDmgMult *= 0.95; } },
-    { r: 0, type: 'util', name: "Agility", desc: "Move Speed +5%", run: () => CONFIG.headSpeed *= 1.05 },
-    { r: 0, type: 'wep', name: "Sniper", desc: "Crit Chance +5%", run: () => critChance = Math.min(CAP_CRIT_CHANCE, critChance + 0.05) },
+function updateStatsBySize() {
+    // SIZE SCALING LOGIC
+    let sizeRatio = VISUAL_SCALE / BASE_VISUAL_SCALE;
     
-    // --- RARE (Tier 2) ---
-    { r: 1, type: 'def', name: "Reinforced Plating", desc: "Max HP +25%", run: () => addMaxHP(0.25) },
-    { r: 1, type: 'def', name: "Shield Generator", desc: "Unlock 500 Shield", req: () => !unlockedShield, run: () => { unlockedShield = true; dragonMaxShield += 500; dragonShieldRegen += 2; } },
-    { r: 1, type: 'def', name: "Shield Battery", desc: "Shield +500", req: () => unlockedShield, run: () => { dragonMaxShield += 500; dragonShieldRegen += 2; } },
-    { r: 1, type: 'def', name: "Amp Shield", desc: "+20% DMG while Shielded", req: () => unlockedShield, run: () => shieldAmpDmg = true },
-    { r: 1, type: 'wep', name: "Dual Beam", desc: "+1 Beam, +10% DMG", req: () => laserCount < MAX_LASER_MAIN, run: () => { laserCount++; dragonAtk += 0.1; } },
-    { r: 1, type: 'wep', name: "Tail Mastery", desc: "Tail DMG x3", run: () => tailDmgMult += 3 },
+    // Reset to base before applying size mod
+    // (In a real ECS this would be cleaner, here we just adjust modifiers)
+    // Dragon ATK scales with size (Bigger = Stronger, Smaller = Weaker)
+    dragonAtk = dragonBaseAtk * Math.max(0.2, sizeRatio);
     
-    // ORB WEAPON TREE
-    { r: 1, type: 'wep', name: "Orbiter", desc: "Unlock Projectile Weapon", req: () => !unlockedOrbs, run: () => { unlockedOrbs = true; orbLevel++; orbStats.count++; } },
-    { r: 1, type: 'wep', name: "Orb Upgrade", desc: "+1 Orb, +Speed", req: () => unlockedOrbs, run: () => { orbLevel++; orbStats.count++; orbStats.speed += 2; } },
-    { r: 2, type: 'wep', name: "Ricochet", desc: "Orbs bounce +1 times", req: () => unlockedOrbs, run: () => ricochetCount++ },
-    { r: 3, type: 'wep', name: "Orbital Cannon", desc: "Massive Orbs, High Dmg", req: () => unlockedOrbs, run: () => { orbStats.size *= 2; orbStats.damageMult *= 1.5; } },
-
-    { r: 1, type: 'util', name: "Greed", desc: "XP +30%", run: () => xpMultiplier += 0.3 },
+    // Fire Rate scales inversely (Smaller = Faster, Bigger = Slower)
+    // We apply this as a modifier to 'effectiveFireRate' in the loop, or here globally?
+    // Let's modify a global multiplier
+    let sizeFireRateMod = 1 / Math.max(0.5, sizeRatio);
     
-    // TURRET TREE
-    { r: 1, type: 'wep', name: "Auto Turret", desc: "Unlock Auto Turret", req: () => autoTurretCount === 0, run: () => autoTurretCount++ },
-    { r: 1, type: 'wep', name: "Twin Turrets", desc: "+1 Turret", req: () => autoTurretCount > 0, run: () => autoTurretCount++ },
-    { r: 2, type: 'wep', name: "Overclock", desc: "Turrets Fire 2x Faster", req: () => autoTurretCount > 0, run: () => { /* Logic handled in draw/update */ autoTurretCount += 0.5; } }, // Hacky way to boost power without adding visual lines
-
-    { r: 1, type: 'wep', name: "Crit Master", desc: "Crit Dmg +50%", run: () => critDmg = Math.min(CAP_CRIT_DMG, critDmg + 0.5) },
-    { r: 1, type: 'def', name: "Dodge Roll", desc: "Dodge +10%", run: () => dodgeChance = Math.min(CAP_DODGE, dodgeChance + 0.1) },
-    { r: 1, type: 'wep', name: "Reactor", desc: "Burn nearby enemies", run: () => reactorDmg += 40 },
-    { r: 1, type: 'wep', name: "Frost Aura", desc: "Slow nearby enemies", run: () => auraIceSlow = Math.min(0.5, auraIceSlow + 0.1) },
-    
-    // --- EPIC (Tier 3) ---
-    // FURY TREE
-    { r: 2, type: 'abil', name: "Draconic Fury", desc: "Unlock FURY bar", req: () => !unlockedFury, run: () => { unlockedFury = true; furyEnabled = true; } },
-    { r: 2, type: 'abil', name: "Rage Fuel", desc: "Fury lasts +5s", req: () => unlockedFury, run: () => furyDuration += 300 },
-    { r: 2, type: 'abil', name: "Hellfire", desc: "Fury Activation Explodes", req: () => unlockedFury && !furyExplosion, run: () => furyExplosion = true },
-    { r: 3, type: 'abil', name: "Undying Rage", desc: "Invincible during Fury", req: () => unlockedFury && !furyInvuln, run: () => furyInvuln = true },
-
-    // GHOST TREE
-    { r: 2, type: 'abil', name: "Spectral Form", desc: "Unlock Ghost Form (+15% Dodge)", req: () => !unlockedGhost, run: () => { unlockedGhost = true; ghostActive = true; dodgeChance += 0.15; } },
-    { r: 2, type: 'abil', name: "Poltergeist", desc: "Damage enemies you pass through", req: () => unlockedGhost, run: () => ghostDmg += 50 },
-    { r: 3, type: 'abil', name: "Phase Shift", desc: "Teleport away when hit", req: () => unlockedGhost && !ghostPhaseShift, run: () => ghostPhaseShift = true },
-
-    { r: 2, type: 'wep', name: "Missile Silo", desc: "Unlock Homing Missiles", req: () => !unlockedMissiles, run: () => { unlockedMissiles = true; missileCount++; } },
-    { r: 2, type: 'wep', name: "Heavy Payload", desc: "+1 Missile", req: () => unlockedMissiles, run: () => missileCount++ },
-
-    { r: 2, type: 'def', name: "Second Heart", desc: "+1 Revive", run: () => reviveCount++ },
-    { r: 2, type: 'wep', name: "Plasma Beam", desc: "Lasers Pierce 50% Def", run: () => laserType = 'plasma' },
-    { r: 2, type: 'wep', name: "Tesla Coil", desc: "15% Chance to Chain Zap", run: () => chainLightningChance = Math.min(0.8, chainLightningChance + 0.15) },
-    { r: 2, type: 'wep', name: "Executioner", desc: "Kill enemies <10% HP", run: () => executeThreshold = 0.1 },
-    { r: 2, type: 'wep', name: "Giga Blast", desc: "Laser Size +50%", run: () => laserWidthBase += 0.5 },
-    { r: 2, type: 'util', name: "Chronos", desc: "Enemies -15% Speed", run: () => globalSlow *= 0.85 },
-    { r: 2, type: 'sum', name: "Mini Drake", desc: "Summon Ally Dragon", run: () => { summonDrakeCount++; summons.push(new SummonDrake(summonDrakeCount)); } },
-    { r: 2, type: 'wep', name: "Vampiric Touch", desc: "Crit Heals +2 HP", run: () => lifeSteal += 2 },
-    { r: 2, type: 'wep', name: "Mine Layer", desc: "Drop Mines", req: () => !unlockedMines, run: () => { unlockedMines = true; } },
-    { r: 2, type: 'def', name: "Overload", desc: "Shield Break Explosion", req: () => unlockedShield && !shieldExplode, run: () => { shieldExplode = true; } },
-    { r: 2, type: 'def', name: "Aegis", desc: "Shielded = +15% Fire Rate", req: () => unlockedShield, run: () => shieldAmpFire = true },
-    { r: 2, type: 'wep', name: "Tail Turret", desc: "Tail shoots lasers", req: () => !tailTurret, run: () => { tailTurret = true; } },
-
-    // --- CRAZY / FUN UPGRADES ---
-    { r: 3, type: 'util', name: "Size Matters", desc: "Size +30%, HP x2, Speed -10%", run: () => { VISUAL_SCALE *= 1.3; updateDragonSize(); addMaxHP(1.0); CONFIG.headSpeed *= 0.9; } },
-    { r: 3, type: 'wep', name: "Disco Inferno", desc: "Lasers do Random Status FX", req: () => !discoMode, run: () => { discoMode = true; } },
-    { r: 3, type: 'util', name: "Bullet Time", desc: "Global Slow 20%", run: () => { globalSlow *= 0.8; } },
-    { r: 3, type: 'util', name: "Gambler", desc: "Randomize ATK every 10s", req: () => !gamblerMode, run: () => { gamblerMode = true; } },
-    { r: 3, type: 'wep', name: "Machine Gun", desc: "Fire Rate x2, Dmg -20%", run: () => { dragonAtk *= 0.8; fireRateMult *= 2.0; laserDmgMult *= 1.25; }},
-
-    // --- LEGENDARY (Tier 4) ---
-    { r: 3, type: 'wep', name: "Void Cannon", desc: "% Max HP Dmg", run: () => laserType = 'void' },
-    { r: 3, type: 'util', name: "Time Stop", desc: "5% Chance to Freeze Time", run: () => timeStopChance += 0.05 },
-    { r: 3, type: 'def', name: "Titan Scales", desc: "Cap Armor 50% & +10% Def", run: () => dragonDefPct = Math.min(CAP_DEF, dragonDefPct + 0.1) },
-    { r: 3, type: 'wep', name: "Armageddon", desc: "Projectiles Explode", req: () => unlockedOrbs, run: () => orbStats.damageMult *= 1.5 },
-    { r: 3, type: 'def', name: "Phoenix Soul", desc: "+3 Revives", run: () => reviveCount += 3 },
-    { r: 3, type: 'abil', name: "Perma-Fury", desc: "Fury charges 2x faster", req: () => unlockedFury, run: () => furyDuration -= 100 },
-    { r: 3, type: 'def', name: "Flash Shield", desc: "Shield break Stuns", req: () => unlockedShield, run: () => shieldStunBreak = true },
-
-    // --- MYTHIC (Tier 5) ---
-    { r: 5, type: 'god', name: "God Mode", desc: "All Stats +50%", run: () => { dragonAtk*=1.5; addMaxHP(0.5); dragonDefPct+=0.1; } },
-    { r: 5, type: 'god', name: "Evolution", desc: "Grow larger, HP x2", run: () => { VISUAL_SCALE *= 1.2; updateDragonSize(); addMaxHP(1.0); } },
-    { r: 5, type: 'god', name: "Black Hole Sun", desc: "Reactor pulls strong", run: () => reactorRadiusMult *= 2 },
-
-    // --- CURSED ---
-    { r: 4, type: 'cursed', name: "Blood Contract", desc: "DMG +100%, Max HP -40%", run: () => { dragonAtk += 1.0; dragonMaxHP *= 0.6; dragonHP = Math.min(dragonHP, dragonMaxHP); } },
-    { r: 4, type: 'cursed', name: "Glass Cannon", desc: "DMG +200%, Take +50% DMG", run: () => { dragonAtk += 2.0; dmgTakenMult += 0.5; } },
-    { r: 4, type: 'cursed', name: "Death Wish", desc: "XP +200%, Enemies HP x2", run: () => { xpMultiplier += 2.0; } },
-    { r: 4, type: 'cursed', name: "Berserk", desc: "Infinite Fury, No Regen", req: () => unlockedFury, run: () => { furyActive = true; furyDuration = 999999; dragonRegen = -10; } }
-];
-
-// Procedural Upgrades
-const STAT_TYPES = [
-    { name: "Vitality", stat: () => addMaxHP(0.15), desc: "HP +15%", type: 'def' },
-    { name: "Strength", stat: () => dragonAtk += 0.15, desc: "ATK +15%", type: 'wep' },
-    { name: "Haste", stat: () => CONFIG.headSpeed *= 1.1, desc: "Speed +10%", type: 'util' },
-    { name: "Fortitude", stat: () => dragonDefPct = Math.min(CAP_DEF, dragonDefPct + 0.03), desc: "Def +3%", type: 'def' }
-];
-for (let i = 0; i < 40; i++) {
-    let t = STAT_TYPES[i % STAT_TYPES.length];
-    UPGRADES.push({ 
-        r: 0, 
-        type: t.type, 
-        name: `${t.name} ${romanize(Math.floor(i/4)+1)}`, 
-        desc: t.desc, 
-        run: t.stat 
-    });
+    // Speed scales inversely
+    // Config.headSpeed is updated in updateDragonSize directly
 }
 
 function updateDragonSize() {
@@ -305,6 +222,126 @@ function updateDragonSize() {
     CONFIG.upperLegLen = 75 * VISUAL_SCALE;
     CONFIG.lowerLegLen = 85 * VISUAL_SCALE;
     CONFIG.wingSpan = 340 * VISUAL_SCALE;
+    
+    // Stat Impact
+    let sizeRatio = VISUAL_SCALE / BASE_VISUAL_SCALE;
+    CONFIG.headSpeed = 0.015 * (1 / Math.max(0.5, sizeRatio)); // Smaller = Faster
+    
+    updateStatsBySize();
+}
+
+// --- UPGRADES DATABASE ---
+const UPGRADES = [
+    // --- COMMON (Tier 1) ---
+    { r: 0, type: 'def', name: "Thick Skin", desc: "Max Health +10%", run: () => addMaxHP(0.1) },
+    { r: 0, type: 'def', name: "Regen Cell", desc: "Regen +1 HP/frame", run: () => dragonRegen += 1 },
+    { r: 0, type: 'def', name: "Hard Scales", desc: "Defense +5%", run: () => dragonDefPct = Math.min(CAP_DEF, dragonDefPct + 0.05) },
+    { r: 0, type: 'def', name: "Spikes", desc: "Thorns +20 DMG", run: () => thornsDmg += 20 },
+    { r: 0, type: 'wep', name: "Extra Barrel", desc: "+1 Main Beam (-10% Dmg)", req: () => laserCount < MAX_LASER_MAIN, run: () => { laserCount++; laserDmgMult *= 0.90; } },
+    { r: 0, type: 'wep', name: "Focus Lens", desc: "Beams are 10% wider", run: () => laserWidthBase += 0.1 },
+    { r: 0, type: 'wep', name: "Sharpen", desc: "Base Attack +10%", run: () => dragonBaseAtk += 0.1 },
+    { r: 0, type: 'util', name: "Magnetism", desc: "Pickup Range +25%", run: () => magnetRange *= 1.25 },
+    { r: 0, type: 'util', name: "Learning", desc: "XP Gain +10%", run: () => xpMultiplier += 0.1 },
+    { r: 0, type: 'wep', name: "Sniper", desc: "Crit Chance +5%", run: () => critChance = Math.min(CAP_CRIT_CHANCE, critChance + 0.05) },
+
+    // --- SIZE TREE (NEW) ---
+    { r: 0, type: 'size', name: "Growth Hormone", desc: "Size +10% (Gain HP/ATK, Lose Spd)", run: () => { VISUAL_SCALE *= 1.1; updateDragonSize(); addMaxHP(0.1); } },
+    { r: 0, type: 'size', name: "Compact Form", desc: "Size -10% (Gain Spd/FireRate, Lose HP)", run: () => { VISUAL_SCALE *= 0.9; updateDragonSize(); dragonMaxHP *= 0.95; } },
+    
+    // --- RARE (Tier 2) ---
+    { r: 1, type: 'def', name: "Reinforced Plating", desc: "Max HP +25%", run: () => addMaxHP(0.25) },
+    { r: 1, type: 'def', name: "Shield Generator", desc: "Unlock 500 Shield", req: () => !unlockedShield, run: () => { unlockedShield = true; dragonMaxShield += 500; dragonShieldRegen += 2; } },
+    { r: 1, type: 'wep', name: "Dual Beam", desc: "+1 Beam, +10% DMG", req: () => laserCount < MAX_LASER_MAIN, run: () => { laserCount++; dragonBaseAtk += 0.1; } },
+    
+    // PROJECTILES
+    { r: 1, type: 'wep', name: "Orbiter", desc: "Unlock Projectile Weapon", req: () => !unlockedOrbs, run: () => { unlockedOrbs = true; orbLevel++; orbStats.count++; } },
+    { r: 1, type: 'wep', name: "Orb Upgrade", desc: "+1 Orb, +Speed", req: () => unlockedOrbs, run: () => { orbLevel++; orbStats.count++; orbStats.speed += 2; } },
+    
+    { r: 1, type: 'wep', name: "Sawblade", desc: "Spinning melee protection", req: () => !unlockedSaw, run: () => { unlockedSaw = true; sawCount++; saws.push(new SawBlade(0)); } },
+    { r: 1, type: 'wep', name: "Double Saw", desc: "Add another Sawblade", req: () => unlockedSaw, run: () => { sawCount++; saws.push(new SawBlade((Math.PI*2)/sawCount)); rearrangeSaws(); } },
+
+    // NEW WEAPONS
+    { r: 1, type: 'wep', name: "Bone Boomerang", desc: "Throw a returning bone", req: () => !unlockedBoomerang, run: () => { unlockedBoomerang = true; boomerangCount++; } },
+    { r: 1, type: 'wep', name: "Multi-Rang", desc: "+1 Boomerang", req: () => unlockedBoomerang, run: () => boomerangCount++ },
+    
+    { r: 1, type: 'wep', name: "Plasma Grenade", desc: "Lob explosive plasma", req: () => !unlockedGrenade, run: () => { unlockedGrenade = true; grenadeCount++; } },
+    { r: 2, type: 'wep', name: "Cluster Bomb", desc: "Grenades split on boom", req: () => unlockedGrenade, run: () => grenadeCluster = true },
+    { r: 2, type: 'wep', name: "Napalm", desc: "Grenades leave fire", req: () => unlockedGrenade, run: () => grenadeNapalm = true },
+
+    // STATUS
+    { r: 1, type: 'wep', name: "Poison Tip", desc: "10% Chance to Poison", run: () => poisonChance += 0.1 },
+    { r: 1, type: 'wep', name: "Flame Tip", desc: "10% Chance to Burn", run: () => burnChance += 0.1 },
+
+    { r: 1, type: 'wep', name: "Crit Master", desc: "Crit Dmg +50%", run: () => critDmg = Math.min(CAP_CRIT_DMG, critDmg + 0.5) },
+    { r: 1, type: 'def', name: "Dodge Roll", desc: "Dodge +10%", run: () => dodgeChance = Math.min(CAP_DODGE, dodgeChance + 0.1) },
+    { r: 1, type: 'wep', name: "Reactor", desc: "Burn nearby enemies", run: () => reactorDmg += 40 },
+
+    // --- EPIC (Tier 3) ---
+    // FURY TREE
+    { r: 2, type: 'abil', name: "Draconic Fury", desc: "Unlock FURY bar", req: () => !unlockedFury, run: () => { unlockedFury = true; furyEnabled = true; } },
+    { r: 2, type: 'abil', name: "Meditation", desc: "Fury regens passively", req: () => unlockedFury, run: () => furyRegenPassive += 0.05 },
+    { r: 2, type: 'abil', name: "Ignition", desc: "Burn enemies near you in Fury", req: () => unlockedFury, run: () => furyIgnition = true },
+    { r: 3, type: 'abil', name: "Rage Quit", desc: "Explode when Fury ends", req: () => unlockedFury, run: () => furyEndExplosion = true },
+
+    // GHOST TREE
+    { r: 2, type: 'abil', name: "Spectral Form", desc: "Unlock Ghost Meter", req: () => !unlockedGhost, run: () => { unlockedGhost = true; dodgeChance += 0.1; } },
+    { r: 2, type: 'abil', name: "Ethereal Flow", desc: "Ghost Meter Regen", req: () => unlockedGhost, run: () => ghostRegen += 0.05 },
+    { r: 2, type: 'abil', name: "Ectoplasm", desc: "Slow enemies you pass thru", req: () => unlockedGhost, run: () => ghostEcto = true },
+
+    // SIZE TREE EPIC
+    { r: 2, type: 'size', name: "Leviathan", desc: "Size +25%, HP +50%", run: () => { VISUAL_SCALE *= 1.25; updateDragonSize(); addMaxHP(0.5); } },
+    { r: 2, type: 'size', name: "Micro Dragon", desc: "Size -25%, Spd +30%", run: () => { VISUAL_SCALE *= 0.75; updateDragonSize(); } },
+
+    { r: 2, type: 'wep', name: "Missile Silo", desc: "Unlock Homing Missiles", req: () => !unlockedMissiles, run: () => { unlockedMissiles = true; missileCount++; } },
+    { r: 2, type: 'wep', name: "Plasma Beam", desc: "Lasers Pierce Armor", run: () => laserType = 'plasma' },
+    
+    // NEW STATUS UPGRADES
+    { r: 2, type: 'wep', name: "Cryo Round", desc: "10% Chance to Freeze", run: () => freezeChance += 0.1 },
+    { r: 2, type: 'wep', name: "Corrosion", desc: "10% Chance to Weaken", run: () => weakChance += 0.1 },
+    { r: 2, type: 'wep', name: "Shatter", desc: "10% Chance to Vulnerable", run: () => vulnChance += 0.1 },
+
+    { r: 2, type: 'wep', name: "Tesla Coil", desc: "15% Chance to Chain Zap", run: () => chainLightningChance = Math.min(0.8, chainLightningChance + 0.15) },
+    { r: 2, type: 'wep', name: "Vampiric Touch", desc: "Crit Heals +2 HP", run: () => lifeSteal += 2 },
+    { r: 2, type: 'wep', name: "Mine Layer", desc: "Drop Mines", req: () => !unlockedMines, run: () => { unlockedMines = true; } },
+
+    // --- CRAZY / FUN UPGRADES ---
+    { r: 3, type: 'util', name: "Size Matters", desc: "Size +30%, HP x2", run: () => { VISUAL_SCALE *= 1.3; updateDragonSize(); addMaxHP(1.0); } },
+    { r: 3, type: 'wep', name: "Disco Inferno", desc: "Lasers do Random Status FX", req: () => !discoMode, run: () => { discoMode = true; } },
+    
+    // --- LEGENDARY (Tier 4) ---
+    { r: 3, type: 'wep', name: "Void Cannon", desc: "0.05% MaxHP + Flat Dmg", run: () => laserType = 'void' },
+    { r: 3, type: 'util', name: "Time Stop", desc: "5% Chance to Freeze Time", run: () => timeStopChance += 0.05 },
+    { r: 3, type: 'def', name: "Titan Scales", desc: "Armor Cap 75% & +10% Def", run: () => dragonDefPct = Math.min(CAP_DEF, dragonDefPct + 0.1) },
+    { r: 3, type: 'wep', name: "Armageddon", desc: "Projectiles Explode", req: () => unlockedOrbs, run: () => orbStats.damageMult *= 1.5 },
+    { r: 3, type: 'def', name: "Phoenix Soul", desc: "+3 Revives", run: () => reviveCount += 3 },
+    { r: 3, type: 'abil', name: "Perma-Fury", desc: "Fury charges 2x faster", req: () => unlockedFury, run: () => furyDuration -= 100 },
+    
+    // --- MYTHIC (Tier 5) ---
+    { r: 5, type: 'god', name: "God Mode", desc: "All Stats +50%", run: () => { dragonBaseAtk*=1.5; addMaxHP(0.5); dragonDefPct+=0.1; } },
+    { r: 5, type: 'god', name: "Evolution", desc: "Grow larger, HP x2", run: () => { VISUAL_SCALE *= 1.2; updateDragonSize(); addMaxHP(1.0); } },
+    { r: 5, type: 'god', name: "Black Hole Sun", desc: "Reactor pulls strong", run: () => reactorRadiusMult *= 2 },
+
+    // --- CURSED ---
+    { r: 4, type: 'cursed', name: "Blood Contract", desc: "DMG +100%, Max HP -40%", run: () => { dragonBaseAtk += 1.0; dragonMaxHP *= 0.6; dragonHP = Math.min(dragonHP, dragonMaxHP); } },
+    { r: 4, type: 'cursed', name: "Glass Cannon", desc: "DMG +200%, Take +50% DMG", run: () => { dragonBaseAtk += 2.0; dmgTakenMult += 0.5; } }
+];
+
+// Procedural Upgrades
+const STAT_TYPES = [
+    { name: "Vitality", stat: () => addMaxHP(0.15), desc: "HP +15%", type: 'def' },
+    { name: "Strength", stat: () => dragonBaseAtk += 0.15, desc: "ATK +15%", type: 'wep' },
+    { name: "Fortitude", stat: () => dragonDefPct = Math.min(CAP_DEF, dragonDefPct + 0.03), desc: "Def +3%", type: 'def' }
+];
+for (let i = 0; i < 40; i++) {
+    let t = STAT_TYPES[i % STAT_TYPES.length];
+    UPGRADES.push({ r: 0, type: t.type, name: `${t.name} ${romanize(Math.floor(i/4)+1)}`, desc: t.desc, run: t.stat });
+}
+
+function rearrangeSaws() {
+    saws = [];
+    for(let i=0; i<sawCount; i++) {
+        saws.push(new SawBlade((Math.PI*2 / sawCount) * i));
+    }
 }
 
 // --- CLASSES ---
@@ -358,7 +395,10 @@ class ExpGem {
         }
         if (d < 60 * G_SCALE) {
             exp += this.val * xpMultiplier;
-            if (furyEnabled && !furyActive) furyMeter = Math.min(100, furyMeter + 0.3);
+            // Meter Gain on Kill
+            if (furyEnabled && !furyActive) furyMeter = Math.min(100, furyMeter + 0.5);
+            if (unlockedGhost && !ghostActive) ghostMeter = Math.min(ghostMaxMeter, ghostMeter + 0.5);
+            
             if (exp >= expNext) levelUp();
             return true;
         }
@@ -371,60 +411,146 @@ class ExpGem {
     }
 }
 
-class SummonDrake {
-    constructor(id) {
-        this.x = spine[0].x;
-        this.y = spine[0].y;
-        this.angle = 0; this.target = null;
-        this.attackCooldown = 0;
-        this.id = id;
+class SawBlade {
+    constructor(offset) {
+        this.offset = offset;
+        this.angle = 0;
+        this.dist = 150 * VISUAL_SCALE;
+    }
+    update(head) {
+        this.angle += 0.1;
+        // Re-calc distance based on current size
+        this.dist = 120 * VISUAL_SCALE + (80 * G_SCALE); 
+        let cx = head.x + Math.cos(this.angle + this.offset) * this.dist;
+        let cy = head.y + Math.sin(this.angle + this.offset) * this.dist;
+        
+        enemies.forEach(e => {
+            if (Math.hypot(e.x - cx, e.y - cy) < 60 * G_SCALE) {
+                e.takeDamage(10 * dragonAtk); 
+                if(frame % 10 === 0) {
+                     ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(cx, cy, 70*G_SCALE, 0, Math.PI*2); ctx.fill();
+                }
+            }
+        });
+        
+        // Draw
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(this.angle * 3);
+        ctx.fillStyle = "#888";
+        ctx.beginPath(); ctx.arc(0,0, 20*G_SCALE, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 3;
+        for(let i=0; i<4; i++) {
+            ctx.rotate(Math.PI/2);
+            ctx.beginPath(); ctx.moveTo(0, -30*G_SCALE); ctx.lineTo(10*G_SCALE, 0); ctx.lineTo(-10*G_SCALE, 0); ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
+class Boomerang {
+    constructor(x, y, angle) {
+        this.x = x; this.y = y;
+        this.originX = x; this.originY = y;
+        this.angle = angle;
+        this.speed = 12 * G_SCALE;
+        this.dist = 0;
+        this.maxDist = 600 * G_SCALE;
+        this.returning = false;
+        this.life = 200;
     }
     update() {
+        this.life--;
+        if(this.life <= 0) return true;
+        
         let head = spine[0];
-        if (!this.target || this.target.hp <= 0) {
-            this.target = null;
-            let minD = 800; 
-            enemies.forEach(e => {
-                let d = Math.hypot(e.x - this.x, e.y - this.y);
-                if (d < minD) { minD = d; this.target = e; }
-            });
-        }
-        if (this.target) {
-            let dx = this.target.x - this.x, dy = this.target.y - this.y;
-            let dist = Math.hypot(dx, dy);
-            let ang = Math.atan2(dy, dx);
-            this.angle = ang;
-            this.x += Math.cos(ang) * 7; 
-            this.y += Math.sin(ang) * 7;
-            if (this.attackCooldown > 0) this.attackCooldown--;
-            if (dist < 150 && this.attackCooldown <= 0) {
-                this.target.takeDamage(20 * dragonAtk);
-                this.attackCooldown = 30;
-                ctx.strokeStyle = "lime"; ctx.lineWidth = 2; 
-                ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(this.target.x, this.target.y); ctx.stroke();
-            }
+        if(!this.returning) {
+            this.x += Math.cos(this.angle) * this.speed;
+            this.y += Math.sin(this.angle) * this.speed;
+            this.dist += this.speed;
+            if(this.dist >= this.maxDist) this.returning = true;
         } else {
-            let time = frame * 0.05 + (this.id * 2);
-            let tx = head.x + Math.cos(time) * 150 * VISUAL_SCALE;
-            let ty = head.y + Math.sin(time) * 150 * VISUAL_SCALE;
-            this.x += (tx - this.x) * 0.1;
-            this.y += (ty - this.y) * 0.1;
-            this.angle = Math.atan2(ty - this.y, tx - this.x);
+            let a = Math.atan2(head.y - this.y, head.x - this.x);
+            this.x += Math.cos(a) * (this.speed * 1.5);
+            this.y += Math.sin(a) * (this.speed * 1.5);
+            if(Math.hypot(head.x - this.x, head.y - this.y) < 50) return true; // Caught
         }
+        
+        // Spin effect
+        this.rot = (this.rot || 0) + 0.5;
+
+        enemies.forEach(e => {
+            if(Math.hypot(e.x - this.x, e.y - this.y) < 40 * G_SCALE) {
+                e.takeDamage(15 * dragonAtk);
+                if(frame % 5 === 0) {
+                    ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(e.x, e.y, 20, 0, Math.PI*2); ctx.fill();
+                }
+            }
+        });
+        return false;
     }
     draw() {
-        ctx.save(); ctx.translate(this.x, this.y);
-        ctx.rotate(this.angle);
-        ctx.fillStyle = "#0f0"; 
-        ctx.beginPath(); ctx.moveTo(15,0); ctx.lineTo(-10, 8); ctx.lineTo(-5, 0); ctx.lineTo(-10,-8); ctx.fill();
+        ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.rot);
+        ctx.fillStyle = "#ddccaa";
+        ctx.beginPath(); ctx.moveTo(-20,-5); ctx.quadraticCurveTo(0, -20, 20, -5); 
+        ctx.quadraticCurveTo(0, 10, -20, -5); ctx.fill();
         ctx.restore();
+    }
+}
+
+class Grenade {
+    constructor(x, y, targetX, targetY) {
+        this.x = x; this.y = y;
+        this.targetX = targetX; this.targetY = targetY;
+        this.timer = 60;
+        this.totalTime = 60;
+        this.startX = x; this.startY = y;
+    }
+    update() {
+        this.timer--;
+        let t = 1 - (this.timer / this.totalTime);
+        // Linear lerp for X/Y
+        this.x = this.startX + (this.targetX - this.startX) * t;
+        this.y = this.startY + (this.targetY - this.startY) * t;
+        // Arc height
+        let height = Math.sin(t * Math.PI) * 100 * G_SCALE;
+        this.visualY = this.y - height;
+        
+        if(this.timer <= 0) {
+            // EXPLODE
+            let radius = 200 * G_SCALE;
+            enemies.forEach(e => {
+                if(Math.hypot(e.x - this.x, e.y - this.y) < radius) {
+                    e.takeDamage(50 * dragonAtk);
+                    if(grenadeNapalm) e.applyStatus('burn', 180, 10 * dragonAtk);
+                }
+            });
+            // Visual Boom
+            ctx.fillStyle = "rgba(255, 100, 255, 0.6)"; 
+            ctx.beginPath(); ctx.arc(this.x, this.y, radius, 0, Math.PI*2); ctx.fill();
+            
+            if(grenadeCluster) {
+                // Simplified cluster: just deal damage in wider area with visual
+                enemies.forEach(e => {
+                   if(Math.hypot(e.x - this.x, e.y - this.y) < radius * 1.5) {
+                       e.takeDamage(20 * dragonAtk);
+                   }
+                });
+                ctx.strokeStyle = "orange"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(this.x, this.y, radius*1.5, 0, Math.PI*2); ctx.stroke();
+            }
+            return true;
+        }
+        return false;
+    }
+    draw() {
+        ctx.fillStyle = "#ff00ff";
+        ctx.beginPath(); ctx.arc(this.x, this.visualY, 8*G_SCALE, 0, Math.PI*2); ctx.fill();
     }
 }
 
 class Missile {
     constructor(x, y) {
-        this.x = x;
-        this.y = y; this.life = 120;
+        this.x = x; this.y = y; this.life = 120;
         this.target = enemies.length > 0 ? enemies[Math.floor(Math.random()*enemies.length)] : null;
         this.vx = (Math.random()-0.5)*10;
         this.vy = (Math.random()-0.5)*10;
@@ -497,7 +623,7 @@ class EnemyProjectile {
         const center = spine[Math.floor(spine.length/2)];
         const hitHead = Math.hypot(this.x - head.x, this.y - head.y) < (40 * VISUAL_SCALE);
         const hitBody = Math.hypot(this.x - center.x, this.y - center.y) < (50 * VISUAL_SCALE);
-        
+
         if (this.type === 'spawner' && frame % 5 === 0 && Math.random() < 0.05) {
              let e = new Enemy('swarmer', wave);
              e.x = this.x; e.y = this.y; enemies.push(e);
@@ -506,11 +632,11 @@ class EnemyProjectile {
 
         if (hitHead || hitBody) {
             if (this.type === 'spawner') {
-                let e = new Enemy('brute', wave); e.x = this.x; e.y = this.y; enemies.push(e);
+                let e = new Enemy('brute', wave);
+                e.x = this.x; e.y = this.y; enemies.push(e);
                 return true;
             }
             takeDamage(this.dmg);
-            if(this.type === 'web') webbedTimer = 120; 
             return true; 
         }
         return (this.x < -200 || this.x > width+200 || this.y < -200 || this.y > height+200);
@@ -552,6 +678,7 @@ const ENEMY_DEFS = {
     'phantom': { hp: 350, spd: 1.6, xp: 110, col: '#88aaff', r: 25, visual: 'ghost', ai: 'fade', crashDmg: 30 },
     'tank': { hp: 2000, spd: 0.6, xp: 250, col: '#222222', r: 45, visual: 'heavy_tank', crashDmg: 100 },
     'golem': { hp: 5000, spd: 0.4, xp: 600, col: '#554433', r: 60, visual: 'block', crashDmg: 150 },
+    // BOSSES
     'mini_slayer': { hp: 12000, spd: 1.2, xp: 2000, col: '#aa00aa', r: 40, visual: 'boss_slayer', isBoss: true, ai: 'pounce', crashDmg: 200 },
     'boss_hydra': { hp: 25000, spd: 0.5, xp: 5000, col: '#00aa00', r: 90, visual: 'boss_hydra', isBoss: true, ai: 'range_heavy', crashDmg: 300 },
     'boss_titan': { hp: 60000, spd: 0.3, xp: 8000, col: '#aa5500', r: 120, visual: 'boss_titan', isBoss: true, ai: 'swarm', crashDmg: 400 },
@@ -584,8 +711,12 @@ class Enemy {
         this.ai = def.ai || (def.isBoss && def.ai ? def.ai : 'basic'); 
         this.crashDmg = def.crashDmg || 20;
 
+        // STATUS TIMERS
         this.poisonTimer = 0;
         this.burnTimer = 0;
+        this.freezeTimer = 0;
+        this.weakTimer = 0; // Deals less damage
+        this.vulnTimer = 0; // Takes more damage
         this.burnDmgPerTick = 0;
 
         this.animFrame = Math.random() * 100; 
@@ -604,25 +735,48 @@ class Enemy {
         if (this.eliteMod === 'AEGIS') { this.shield = this.hp * 0.5; }
     }
 
+    applyStatus(type, duration, strength) {
+        // BOSS IMMUNITIES to CC
+        if (this.isBoss && (type === 'freeze' || type === 'stun')) return;
+        
+        if (type === 'poison') this.poisonTimer = duration;
+        if (type === 'burn') { this.burnTimer = duration; this.burnDmgPerTick = strength; }
+        if (type === 'freeze') this.freezeTimer = duration;
+        if (type === 'weak') this.weakTimer = duration;
+        if (type === 'vuln') this.vulnTimer = duration;
+    }
+
     update() {
         this.animFrame++;
         if (timeStopActive) return;
         
+        // HARD CROWD CONTROL CHECK
+        if (this.freezeTimer > 0) {
+            this.freezeTimer--;
+            if (frame % 20 === 0) ctx.fillStyle="cyan"; // Flash frozen
+            return; // STOP LOGIC
+        }
+
+        // DoT Handling
         if (this.poisonTimer > 0) {
-            if (this.poisonTimer % 30 === 0) this.takeDamage(Math.max(5, poisonDmg * 0.5), true, 'poison');
+            if (this.poisonTimer % 30 === 0) this.takeDamage(Math.max(5, dragonAtk), true, 'poison');
             this.poisonTimer--;
         }
         if (this.burnTimer > 0) {
             if (this.burnTimer % 15 === 0) this.takeDamage(this.burnDmgPerTick, true, 'burn');
             this.burnTimer--;
         }
+        if (this.weakTimer > 0) this.weakTimer--;
+        if (this.vulnTimer > 0) this.vulnTimer--;
 
+        // Regeneration Elite
         if (this.eliteMod === 'REGEN' && frame % 60 === 0) this.hp = Math.min(this.maxHp, this.hp + this.maxHp*0.05);
-
+        
         const head = spine[0];
         let targetX = head.x; let targetY = head.y;
         const dist = Math.hypot(targetX - this.x, targetY - this.y);
         
+        // Collision push
         enemies.forEach(other => {
             if (other === this) return;
             let dx = this.x - other.x, dy = this.y - other.y;
@@ -634,6 +788,7 @@ class Enemy {
             }
         });
 
+        // Reactor Pull
         if (reactorDmg > 0 && reactorRadiusMult > 1.0) {
             let pullRange = 500 * G_SCALE * reactorRadiusMult;
             if (dist < pullRange) {
@@ -650,23 +805,20 @@ class Enemy {
 
         this.timer++;
         let moveSpeed = this.speed * globalSlow;
-        if (auraIceSlow > 0 && dist < 300) moveSpeed *= (1 - auraIceSlow);
-        if (fearChance > 0 && Math.random() < fearChance && dist < 200) moveSpeed *= -1; 
+        // Status Effects
+        if (this.isStunned) { moveSpeed = 0; this.stunTimer--; if(this.stunTimer <= 0) this.isStunned = false; }
         
-        if (this.isStunned) {
-            moveSpeed *= 0.1;
-            this.stunTimer--;
-            if(this.stunTimer <= 0) this.isStunned = false;
-        }
+        // Ectoplasm Slow (Ghost Upgrade)
+        if (ghostEcto && ghostActive && dist < 100) moveSpeed *= 0.5;
 
         let mx = Math.cos(angleToPlayer);
         let my = Math.sin(angleToPlayer);
 
         if (this.eliteMod === 'WARP' && frame % 120 === 0 && Math.random() < 0.3) {
             this.x += (Math.random()-0.5)*300; this.y += (Math.random()-0.5)*300;
-            ctx.fillStyle = "white"; ctx.fillRect(this.x-10, this.y-10, 20, 20);
         }
 
+        // BOSS ENRAGE
         if (this.isBoss && this.hp < this.maxHp * 0.5) {
             moveSpeed *= 1.3;
             if (frame % 30 === 0) {
@@ -674,6 +826,7 @@ class Enemy {
             }
         }
 
+        // AI LOGIC SWITCH
         switch(this.ai) {
             case 'swarm':
                 if (dist < 300 * G_SCALE) moveSpeed *= 1.5;
@@ -740,7 +893,6 @@ class Enemy {
                 
                 let fireRate = this.ai === 'range_snipe' ? 220 : 120;
                 if (this.type === 'boss_ufo') fireRate = 180;
-                
                 if (this.type === 'boss_hydra' && this.timer > 90) {
                     for(let k=-1; k<=1; k++) enemyProjectiles.push(new EnemyProjectile(this.x, this.y, angleToPlayer + k*0.3, 'normal'));
                     this.timer = 0;
@@ -771,6 +923,7 @@ class Enemy {
             this.x += (targetX - this.x) * 0.05; this.y += (targetY - this.y) * 0.05;
         }
 
+        // Leg IK Animation
         if (this.legs.length > 0) {
             this.legs.forEach((leg, i) => {
                 let offset = (i % 2 === 0 ? 1 : -1) * (i < 2 ? 0.5 : 1.0);
@@ -778,7 +931,7 @@ class Enemy {
                 let idealX = this.x + Math.cos(legAngle) * (this.radius * 2);
                 let idealY = this.y + Math.sin(legAngle) * (this.radius * 2);
                 if (Math.hypot(idealX - leg.x, idealY - leg.y) > this.radius * 1.5 && leg.step <= 0) {
-                    leg.step = 1; leg.tX = idealX; leg.tY = idealY;
+                   leg.step = 1; leg.tX = idealX; leg.tY = idealY;
                 }
                 if (leg.step > 0) {
                      leg.x += (leg.tX - leg.x) * 0.2; leg.y += (leg.tY - leg.y) * 0.2; leg.step -= 0.1;
@@ -786,6 +939,7 @@ class Enemy {
             });
         }
 
+        // COLLISION WITH PLAYER
         let hit = false;
         let points = [0, Math.floor(spine.length/2), spine.length-1];
         for(let idx of points) {
@@ -794,8 +948,10 @@ class Enemy {
                 hit = true;
                 if (idx === spine.length-1 && tailDmgMult > 1.0) {
                     this.takeDamage(20 * dragonAtk * tailDmgMult, false);
-                    let push = 50 * knockbackStr;
-                    this.x -= mx * push; this.y -= my * push;
+                    if (!this.isBoss) {
+                        let push = 50 * knockbackStr;
+                        this.x -= mx * push; this.y -= my * push;
+                    }
                 }
                 break;
             }
@@ -803,21 +959,28 @@ class Enemy {
 
         if (hit) {
             let collisionDamage = this.crashDmg;
+            if (this.weakTimer > 0) collisionDamage *= 0.5; // WEAKNESS EFFECT
+
             if(this.ai === 'kamikaze' || this.eliteMod === 'VOLATILE') { 
                 collisionDamage = 80; this.hp = 0; 
                 for(let k=0; k<8; k++) enemyProjectiles.push(new EnemyProjectile(this.x, this.y, k * (Math.PI/4)));
             }
             takeDamage(collisionDamage); 
             if(thornsDmg > 0) this.takeDamage(thornsDmg, false);
-            // Poltergeist Effect
             if(ghostActive && ghostDmg > 0) this.takeDamage(ghostDmg * dragonAtk, false);
         }
         
+        // REACTOR BURN
         if (reactorDmg > 0 && dist < 200 * VISUAL_SCALE * reactorRadiusMult) {
-             if (frame % 20 === 0) this.applyBurn(reactorDmg * 2, 60); 
+             if (frame % 20 === 0) this.applyStatus('burn', 60, reactorDmg * 2);
         }
-        if (auraFireDmg > 0 && dist < 250 && frame % 20 === 0) this.applyBurn(auraFireDmg * 2, 60);
+        
+        // FURY IGNITION
+        if (furyIgnition && furyActive && dist < 300 * G_SCALE) {
+             if (frame % 15 === 0) this.takeDamage(dragonAtk * 0.5, true, 'burn');
+        }
 
+        // AUTO TURRET
         if (mouse.down || autoTurretCount > 0) {
             if (mouse.down) {
                 checkLaserHit(this, head, laserCount, 0);
@@ -833,33 +996,25 @@ class Enemy {
         }
     }
 
-    applyBurn(dmg, duration) {
-        this.burnTimer = duration;
-        this.burnDmgPerTick = dmg;
-        this.isBurned = true;
-    }
-
     applyStun(duration) {
+        if(this.isBoss) return; // Boss Immunity
         this.isStunned = true;
         this.stunTimer = duration;
         damageNumbers.push(new FloatingText(this.x, this.y, "STUN", "#ffff00", 25));
     }
 
     takeDamage(amount, isDoT = false, type = 'normal') {
-        if (this.eliteMod === 'AEGIS' && Math.random() < 0.5) { 
-            if (laserType !== 'plasma' || Math.random() < 0.5) {
-                damageNumbers.push(new FloatingText(this.x, this.y, "BLOCK", "#fff", 20));
-                return;
-            }
+        if (this.eliteMod === 'AEGIS' && Math.random() < 0.5 && laserType !== 'plasma') {
+             damageNumbers.push(new FloatingText(this.x, this.y, "BLOCK", "#fff", 20)); return;
         }
 
         if (furyActive) amount *= 2;
         if (shieldAmpDmg && dragonShield > 0) amount *= 1.2;
+        if (this.vulnTimer > 0) amount *= 1.3; // VULNERABLE EFFECT
 
         let isCrit = false;
         if (!isDoT && Math.random() < critChance) {
-            amount *= critDmg;
-            isCrit = true;
+            amount *= critDmg; isCrit = true;
             if (lifeSteal > 0) dragonHP = Math.min(dragonMaxHP, dragonHP + lifeSteal);
         }
         
@@ -872,26 +1027,22 @@ class Enemy {
         }
 
         this.hp -= amount;
+
+        // EXECUTE
         if (executeThreshold > 0 && this.hp < this.maxHp * executeThreshold && !this.isBoss) {
-            this.hp = -1;
-            damageNumbers.push(new FloatingText(this.x, this.y, "EXECUTE", "#ff0000", 30));
+            this.hp = -1; damageNumbers.push(new FloatingText(this.x, this.y, "EXECUTE", "#ff0000", 30));
         }
 
         if (!isDoT || frame % 30 === 0) {
-            let color = isCrit ? "#ffcc00" : (this.eliteMod ? "#ff00ff" : "#fff");
+            let color = isCrit ? "#ffcc00" : "#fff";
             let size = isCrit ? 24 : 14;
-            if (isDoT) { 
-                size = 12;
-                if (type === 'poison') color = "#00ff00";
-                else if (type === 'burn') color = "#ff5500";
-                else color = "#aaa";
-            } 
-            if (amount > 1) damageNumbers.push(new FloatingText(this.x, this.y, Math.floor(amount), color, size));
+            if (isDoT) { size = 12; color = (type === 'poison') ? "#00ff00" : "#ff5500"; } 
+            
+            if (amount > 1 && (isCrit || frame % 5 === 0)) {
+                damageNumbers.push(new FloatingText(this.x, this.y, Math.floor(amount), color, size));
+            }
         }
         
-        if (this.type === 'spore' && this.hp <= 0) {
-             ctx.fillStyle="rgba(0,255,0,0.5)"; ctx.beginPath(); ctx.arc(this.x,this.y, 60, 0, Math.PI*2); ctx.fill();
-        }
         if (this.type === 'splitter' && this.hp <= 0) {
              for(let k=0; k<2; k++) {
                  let e = new Enemy('swarmer', wave);
@@ -909,26 +1060,23 @@ class Enemy {
 
         const barW = this.isBoss ? 100 : 40;
         if (!this.isBoss) { 
-            ctx.fillStyle = "red";
-            ctx.fillRect(-barW/2, -this.radius/G_SCALE - 15, barW, 4);
+            ctx.fillStyle = "red"; ctx.fillRect(-barW/2, -this.radius/G_SCALE - 15, barW, 4);
             ctx.fillStyle = "#0f0"; ctx.fillRect(-barW/2, -this.radius/G_SCALE - 15, barW * (Math.max(0, this.hp)/this.maxHp), 4);
         }
         if (this.eliteMod) {
-            ctx.strokeStyle = "#ff00ff";
-            ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0,0,this.radius/G_SCALE + 5, 0, Math.PI*2); ctx.stroke();
-            ctx.fillStyle = "rgba(255, 0, 255, 0.2)";
-            ctx.beginPath(); ctx.arc(0, 0, this.radius/G_SCALE + 15, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = "#ff00ff"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0,0,this.radius/G_SCALE + 5, 0, Math.PI*2); ctx.stroke();
         }
 
         ctx.rotate(this.angle);
-        
         // Status Visuals
-        if (this.isStunned || auraIceSlow > 0 && Math.hypot(this.x - spine[0].x, this.y - spine[0].y) < 300) ctx.fillStyle = "cyan"; // Freezing
+        if (this.isStunned || this.freezeTimer > 0) ctx.fillStyle = "cyan";
         else if (this.poisonTimer > 0) ctx.fillStyle = "#00ff00";
         else if (this.burnTimer > 0) ctx.fillStyle = "#ffaa00";
-        else ctx.fillStyle = this.eliteMod ? "#ffccff" : this.col;
-        
+        else if (this.vulnTimer > 0) ctx.fillStyle = "#ff88ff";
+        else ctx.fillStyle = this.col;
+
         let r = this.radius / G_SCALE;
+        // Draw Legs
         if (this.legs.length > 0) {
             ctx.strokeStyle = "#444"; ctx.lineWidth = 4;
             this.legs.forEach(l => {
@@ -939,92 +1087,10 @@ class Enemy {
                 ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(lx/2, ly/2); ctx.lineTo(lx, ly); ctx.stroke();
             });
         }
-
-        // DRAW ENEMY SHAPES
-        switch(this.visual) {
-            case 'boss_hydra': 
-                ctx.fillStyle = "#005500";
-                ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
-                for(let i=-1; i<=1; i++) {
-                    ctx.save();
-                    ctx.rotate(i * 0.5 + Math.sin(frame*0.1)*0.2);
-                    ctx.fillStyle = "#00aa00";
-                    ctx.beginPath(); ctx.ellipse(r, 0, r*0.8, r*0.4, 0, 0, Math.PI*2); ctx.fill();
-                    ctx.fillStyle = "red";
-                    ctx.beginPath(); ctx.arc(r*1.5, -5, 3, 0, Math.PI*2); ctx.fill();
-                    ctx.beginPath(); ctx.arc(r*1.5, 5, 3, 0, Math.PI*2); ctx.fill();
-                    ctx.restore();
-                }
-                break;
-            case 'boss_titan': 
-                ctx.fillStyle = "#332211";
-                ctx.fillRect(-r, -r, r*2, r*2);
-                ctx.strokeStyle = "gold"; ctx.lineWidth = 5; ctx.strokeRect(-r, -r, r*2, r*2);
-                ctx.fillStyle = "red"; ctx.beginPath();
-                ctx.arc(0, 0, 10, 0, Math.PI*2); ctx.fill();
-                break;
-            case 'mini_mecha':
-                ctx.fillStyle = "#444";
-                ctx.beginPath(); ctx.moveTo(r,0); ctx.lineTo(-r,r); ctx.lineTo(-r,-r); ctx.fill();
-                ctx.fillStyle = "cyan"; ctx.beginPath(); ctx.arc(0,0, r*0.4, 0, Math.PI*2); ctx.fill();
-                break;
-            case 'insect': 
-                let wingFlap = Math.sin(this.animFrame * 0.5) * 10;
-                ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-                ctx.beginPath(); ctx.ellipse(-5, -r/2, r*1.2, r/2, Math.PI/4 + wingFlap*0.05, 0, Math.PI*2); ctx.fill();
-                ctx.beginPath();
-                ctx.ellipse(-5, r/2, r*1.2, r/2, -Math.PI/4 - wingFlap*0.05, 0, Math.PI*2); ctx.fill();
-                ctx.fillStyle = this.col;
-                ctx.beginPath();
-                ctx.ellipse(0, 0, r, r*0.6, 0, 0, Math.PI*2); ctx.fill();
-                ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(r*0.6, 0, r*0.3, 0, Math.PI*2); ctx.fill();
-                break;
-            case 'beetle':
-                ctx.fillStyle = this.col;
-                ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
-                ctx.strokeStyle = "#000"; ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.moveTo(-r, 0); ctx.lineTo(r, 0); ctx.stroke();
-                ctx.beginPath();
-                ctx.moveTo(r*0.8, -r*0.4); ctx.lineTo(r*1.5, -r*0.2); ctx.stroke();
-                ctx.beginPath(); ctx.moveTo(r*0.8, r*0.4); ctx.lineTo(r*1.5, r*0.2); ctx.stroke();
-                break;
-            case 'mech': 
-                ctx.fillStyle = "#444";
-                ctx.fillRect(-r, -r, r*2, r*2);
-                ctx.fillStyle = this.col;
-                ctx.fillRect(-r*0.6, -r*0.6, r*1.2, r*1.2);
-                break;
-            case 'turret': 
-                ctx.fillStyle = "#333";
-                ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r, r); ctx.lineTo(-r, -r); ctx.fill();
-                ctx.save();
-                ctx.rotate(this.animFrame * 0.1);
-                ctx.fillStyle = this.col;
-                ctx.fillRect(-r*0.5, -r*0.5, r, r);
-                ctx.restore();
-                break;
-            case 'boss_slayer': 
-                ctx.fillStyle = this.col;
-                ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r, r); ctx.lineTo(-r*0.5, 0); ctx.lineTo(-r, -r); ctx.fill();
-                ctx.strokeStyle = "#fff"; ctx.lineWidth = 3;
-                ctx.beginPath(); ctx.moveTo(-r, 0); ctx.lineTo(r*0.8, 0); ctx.stroke();
-                break;
-            case 'boss_ufo': 
-                ctx.fillStyle = "#555";
-                ctx.beginPath(); ctx.ellipse(0, 0, r, r*0.4, 0, 0, Math.PI*2); ctx.fill();
-                ctx.fillStyle = "cyan";
-                ctx.beginPath(); ctx.arc(0, -r*0.2, r*0.5, Math.PI, 0); ctx.fill();
-                let lOffset = this.animFrame * 0.2;
-                for(let i=0; i<3; i++) {
-                    ctx.fillStyle = (Math.floor(this.animFrame/10 + i)%3===0) ? "red" : "#300";
-                    ctx.beginPath(); ctx.arc(-r*0.6 + i*r*0.6, r*0.1, 5, 0, Math.PI*2); ctx.fill();
-                }
-                break;
-            default: 
-                ctx.fillStyle = this.col;
-                ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
-                break;
-        }
+        
+        ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.fill(); 
+        if(this.visual === 'insect') { ctx.fillStyle="#000"; ctx.beginPath(); ctx.arc(r*0.5,0,r*0.3,0,Math.PI*2); ctx.fill(); }
+        
         ctx.restore();
     }
 }
@@ -1036,7 +1102,7 @@ class Projectile {
         this.pen = orbStats.pen;
         this.dmg = 40 * dragonAtk * orbStats.damageMult;
         this.explodes = (orbStats.damageMult >= 1.5 && UPGRADES.some(u => u.name === "Armageddon" && myUpgrades.includes(u)));
-        this.ricochet = ricochetCount; 
+        this.ricochet = 0; 
     }
     update() {
         this.x += this.vx; this.y += this.vy;
@@ -1044,6 +1110,9 @@ class Projectile {
             let e = enemies[i];
             if (Math.hypot(this.x - e.x, this.y - e.y) < e.radius + (15 * G_SCALE)) {
                 e.takeDamage(this.dmg);
+                // Apply random status if Disco
+                if (discoMode && Math.random() < 0.2) e.applyStatus(['burn','poison','freeze','vuln'][Math.floor(Math.random()*4)], 60, this.dmg);
+                
                 if (this.explodes) {
                     ctx.fillStyle = "rgba(255, 100, 0, 0.5)";
                     ctx.beginPath(); ctx.arc(this.x, this.y, 100 * G_SCALE, 0, Math.PI*2); ctx.fill();
@@ -1053,18 +1122,6 @@ class Projectile {
                         }
                     });
                 }
-                
-                if (this.ricochet > 0) {
-                    this.ricochet--;
-                    let nearest = enemies.find(n => n !== e && Math.hypot(n.x - this.x, n.y - this.y) < 400);
-                    if (nearest) {
-                        let ang = Math.atan2(nearest.y - this.y, nearest.x - this.x);
-                        this.vx = Math.cos(ang) * orbStats.speed;
-                        this.vy = Math.sin(ang) * orbStats.speed;
-                        return false;
-                    }
-                }
-
                 this.pen--;
                 ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(this.x,this.y, 5, 0, Math.PI*2); ctx.fill();
                 if (this.pen <= 0) return true;
@@ -1083,6 +1140,8 @@ class Projectile {
 function takeDamage(amount) {
     if (Math.random() < dodgeChance) {
         damageNumbers.push(new FloatingText(spine[0].x, spine[0].y, "DODGE", "#00ffcc", 20));
+        // Ghost Meter Charge on Dodge
+        if (unlockedGhost && !ghostActive) ghostMeter = Math.min(ghostMaxMeter, ghostMeter + 10);
         return; 
     }
     // Phase Shift Logic
@@ -1092,7 +1151,7 @@ function takeDamage(amount) {
         return;
     }
 
-    if (furyInvuln && furyActive) {
+    if ((furyInvuln && furyActive) || (unlockedGhost && ghostActive)) {
          damageNumbers.push(new FloatingText(spine[0].x, spine[0].y, "INVULN", "#ff0000", 20));
          return;
     }
@@ -1105,7 +1164,7 @@ function takeDamage(amount) {
     // Shield Logic
     if (dragonShield > 0) {
         if (dragonShield >= amount) { dragonShield -= amount; amount = 0; } 
-        else { amount -= dragonShield; dragonShield = 0; 
+        else { amount -= dragonShield; dragonShield = 0;
             if (shieldExplode) {
                 enemies.forEach(e => {
                     if (Math.hypot(e.x - spine[0].x, e.y - spine[0].y) < 300) {
@@ -1152,23 +1211,32 @@ function checkLaserHit(enemy, head, count, angleOffset) {
         let t = ((enemy.x - p1.x) * (p2.x - p1.x) + (enemy.y - p1.y) * (p2.y - p1.y)) / l2;
         t = Math.max(0, Math.min(1, t));
         const distSq = (enemy.x - (p1.x + t * (p2.x - p1.x)))**2 + (enemy.y - (p1.y + t * (p2.y - p1.y)))**2;
+        
         if (distSq < laserPhysWidth * laserPhysWidth) {
-            let mult = 1.0;
-            if (hasBloodLust) {
-                let missingPct = (dragonMaxHP - dragonHP) / dragonMaxHP;
-                mult += (missingPct * 100) * 0.015; 
+            // VOID CANNON REBALANCE
+            if (laserType === 'void') {
+                // 0.05% Max HP + Flat damage based on Attack. Cap MaxHP damage vs Bosses
+                let pctDmg = enemy.isBoss ? 0.0001 : 0.0005; 
+                let flatDmg = 3 * dragonAtk;
+                enemy.takeDamage((enemy.maxHp * pctDmg) + flatDmg);
             }
-            if (laserType === 'void') enemy.takeDamage(enemy.maxHp * 0.02);
             
-            let dmg = 6 * dragonAtk * mult * laserDmgMult;
+            let dmg = 6 * dragonAtk * laserDmgMult;
             if (laserType === 'shotgun') dmg *= 2;
+            
             if (discoMode) {
-                 if (Math.random() < 0.1) enemy.applyBurn(dmg*2, 60);
-                 else if (Math.random() < 0.1) enemy.speed *= 0.5;
+                 if (Math.random() < 0.05) enemy.applyStatus('burn', 60, dmg*0.5);
+                 else if (Math.random() < 0.05) enemy.applyStatus('freeze', 30, 0);
             }
+            
+            // Apply Chance Statuses
+            if (Math.random() < poisonChance) enemy.applyStatus('poison', 180, 0);
+            if (Math.random() < burnChance) enemy.applyStatus('burn', 120, dmg * 0.5);
+            if (Math.random() < freezeChance) enemy.applyStatus('freeze', 60, 0);
+            if (Math.random() < weakChance) enemy.applyStatus('weak', 180, 0);
+            if (Math.random() < vulnChance) enemy.applyStatus('vuln', 180, 0);
 
             enemy.takeDamage(dmg);
-            if (poisonDmg > 0) enemy.poisonTimer = 300;
             break;
         }
     }
@@ -1216,10 +1284,7 @@ function updateCardBounds() {
     const totalW = (cardW * 4) + (gap * 3);
     const startX = (width - totalW) / 2;
     cardBounds = upgradeChoices.map((_, i) => ({
-        x: startX + i * (cardW + gap), 
-        y: height/2 - (200 * G_SCALE), 
-        w: cardW, 
-        h: cardH
+        x: startX + i * (cardW + gap), y: height/2 - (200 * G_SCALE), w: cardW, h: cardH
     }));
 }
 
@@ -1235,10 +1300,9 @@ function spawnWave() {
     wave++;
     const count = 10 + Math.floor(wave * 2.5);
     const types = [];
-    
     if (wave <= 5) types.push('swarmer', 'fly', 'mite', 'wasp');
     if (wave >= 2) types.push('charger', 'drone', 'shooter'); 
-    if (wave >= 3) types.push('splitter'); 
+    if (wave >= 3) types.push('splitter');
     if (wave > 5) types.push('drone', 'swarmer', 'wasp', 'splitter');
     if (wave > 8) types.push('grunt', 'shielded', 'lancer');
     if (wave > 12) types.push('shooter', 'sniper', 'hunter');
@@ -1247,7 +1311,6 @@ function spawnWave() {
     if (wave > 25) types.push('glitch', 'tank');
     if (wave > 30) types.push('golem');
     if (wave > 40) types.push('mini_slayer', 'boss_ufo');
-    
     if (wave % 5 === 0) {
         let bossType = 'mini_slayer';
         if (wave === 10) bossType = 'boss_hydra'; 
@@ -1268,14 +1331,13 @@ function drawLaserFan(head, count, angleOffset, colorOverride) {
     const spread = 0.15;
     const totalSpread = spread * (count - 1);
     const startAngle = (head.angle + angleOffset) - (totalSpread / 2);
-    let laserCol = furyActive ? COLORS.fury : (laserType === 'plasma' ? COLORS.plasma : COLORS.laser);
+    let laserCol = furyActive ? COLORS.fury : (laserType === 'plasma' ? COLORS.plasma : (laserType === 'void' ? COLORS.void : COLORS.laser));
     if (discoMode) laserCol = `hsl(${frame * 5}, 100%, 50%)`;
 
     ctx.shadowBlur = furyActive ? 50 : 35; 
     ctx.shadowColor = laserCol;
     ctx.strokeStyle = colorOverride || laserCol;
     ctx.lineWidth = 10 * VISUAL_SCALE * laserWidthBase;
-
     for(let i=0; i<count; i++) {
         const a = startAngle + (i * spread);
         const startX = head.x + Math.cos(a)*45*VISUAL_SCALE;
@@ -1307,7 +1369,8 @@ function drawLasers(head) {
          }
     }
     if (autoTurretCount > 0) {
-        let nearest = null; let minD = Infinity;
+        let nearest = null;
+        let minD = Infinity;
         enemies.forEach(e => {
             let d = Math.hypot(e.x - head.x, e.y - head.y);
             if(d < minD) { minD = d; nearest = e; }
@@ -1342,7 +1405,8 @@ function drawShield(head) {
         ctx.strokeStyle = COLORS.shield;
         ctx.lineWidth = 3 + Math.sin(frame*0.1)*1;
         ctx.shadowBlur = 10; ctx.shadowColor = "cyan";
-        ctx.beginPath(); ctx.arc(head.x, head.y, 60 * VISUAL_SCALE, 0, Math.PI*2);
+        ctx.beginPath();
+        ctx.arc(head.x, head.y, 60 * VISUAL_SCALE, 0, Math.PI*2);
         ctx.stroke();
         ctx.globalAlpha = 0.1; ctx.fillStyle = COLORS.shield; ctx.fill();
         ctx.restore();
@@ -1354,8 +1418,8 @@ function drawDragonBone(x1, y1, x2, y2, thickness, isWing = false) {
     const angle = Math.atan2(y2 - y1, x2 - x1);
     ctx.save();
     ctx.translate(x1, y1); ctx.rotate(angle);
-    ctx.fillStyle = isWing ? "rgba(0, 150, 255, 0.25)" : (furyActive ? "#330000" : COLORS.bone);
-    ctx.strokeStyle = furyActive ? "#ff3300" : COLORS.accent;
+    ctx.fillStyle = isWing ? "rgba(0, 150, 255, 0.25)" : (furyActive ? "#330000" : (ghostActive ? "#222" : COLORS.bone));
+    ctx.strokeStyle = furyActive ? "#ff3300" : (ghostActive ? "#888" : COLORS.accent);
     ctx.shadowBlur = furyActive ? 15 : 0; ctx.shadowColor = "red";
     ctx.beginPath(); ctx.moveTo(0, -thickness * 0.7);
     ctx.quadraticCurveTo(dist / 2, -thickness * 0.2, dist, -thickness * 0.7);
@@ -1395,8 +1459,8 @@ function drawWings(anchor) {
 function drawDragonHead(s) {
     ctx.save();
     ctx.translate(s.x, s.y); ctx.rotate(s.angle); ctx.scale(VISUAL_SCALE, VISUAL_SCALE);
-    ctx.fillStyle = furyActive ? "#330000" : COLORS.bone; 
-    ctx.strokeStyle = furyActive ? "#ff0000" : COLORS.accent;
+    ctx.fillStyle = furyActive ? "#330000" : (ghostActive ? "#111" : COLORS.bone); 
+    ctx.strokeStyle = furyActive ? "#ff0000" : (ghostActive ? "#fff" : COLORS.accent);
     const drawHorn = (side) => {
         ctx.save(); ctx.beginPath(); ctx.moveTo(-12, side * 8);
         ctx.quadraticCurveTo(-35, side * 40, -75, side * 35);
@@ -1424,19 +1488,25 @@ function drawUI() {
     ctx.textAlign = "left"; ctx.fillStyle = "white";
     ctx.font = `bold ${16 * G_SCALE * 1.5}px monospace`;
     ctx.fillText(`LVL ${level} | WAVE ${wave}`, 20, 35);
-    // SHOW CAPS
-    ctx.fillText(`ATK ${dragonAtk.toFixed(1)} | DEF ${(dragonDefPct*100).toFixed(0)}% (Cap 50%)`, 20, 55);
-    ctx.fillText(`DODGE ${(dodgeChance*100).toFixed(0)}% (Cap 60%)`, 20, 75);
+    ctx.fillText(`ATK ${dragonAtk.toFixed(1)} | DEF ${(dragonDefPct*100).toFixed(0)}%`, 20, 55);
     
+    let yPos = 80;
     if (furyEnabled) {
-        ctx.fillText(`FURY`, 20, 100);
-        ctx.fillStyle = "#330000"; ctx.fillRect(70, 88, 100, 12);
-        ctx.fillStyle = furyActive ? "#ffff00" : "#ff0000"; ctx.fillRect(70, 88, furyMeter, 12);
-        ctx.strokeRect(70, 88, 100, 12);
+        ctx.fillText(`FURY`, 20, yPos);
+        ctx.fillStyle = "#330000"; ctx.fillRect(70, yPos-12, 100, 12);
+        ctx.fillStyle = furyActive ? "#ffff00" : "#ff0000"; ctx.fillRect(70, yPos-12, furyMeter, 12);
+        ctx.strokeStyle="#fff"; ctx.strokeRect(70, yPos-12, 100, 12);
+        yPos += 20;
+    }
+    if (unlockedGhost) {
+        ctx.fillStyle="white"; ctx.fillText(`GHOST`, 20, yPos);
+        ctx.fillStyle = "#111"; ctx.fillRect(70, yPos-12, 100, 12);
+        ctx.fillStyle = ghostActive ? "#fff" : "#888"; ctx.fillRect(70, yPos-12, ghostMeter, 12);
+        ctx.strokeStyle="#fff"; ctx.strokeRect(70, yPos-12, 100, 12);
+        ctx.fillStyle="#aaa"; ctx.font="10px monospace"; ctx.fillText("[SPACE]", 180, yPos);
     }
     
     if (reviveCount > 0) ctx.fillText(`REVIVES: ${reviveCount}`, 20, 125);
-    
     let bosses = enemies.filter(e => e.isBoss);
     if (bosses.length > 0) {
         let boss = bosses[0];
@@ -1444,7 +1514,8 @@ function drawUI() {
         ctx.fillStyle = "#330000";
         ctx.fillRect(bx, 50, bw, bh);
         ctx.fillStyle = boss.type.includes('mini') ? "#aa00aa" : "#ff0000"; ctx.fillRect(bx, 50, bw * (Math.max(0,boss.hp)/boss.maxHp), bh);
-        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.strokeRect(bx, 50, bw, bh);
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2; ctx.strokeRect(bx, 50, bw, bh);
         ctx.fillStyle = "#fff"; ctx.textAlign = "center";
         ctx.fillText(boss.type.toUpperCase(), width/2, 45);
     }
@@ -1485,6 +1556,7 @@ function drawUI() {
             let grad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
             grad.addColorStop(0, rColor); grad.addColorStop(1, "transparent");
             ctx.fillStyle = grad; ctx.globalAlpha = 0.2; ctx.fillRect(b.x, b.y, b.w, b.h);
+         
             ctx.globalAlpha = 1.0;
             ctx.fillStyle = rColor; ctx.font = `bold ${18 * G_SCALE * 1.5}px monospace`; 
             ctx.fillText(c.name, b.x + b.w/2, b.y + 60);
@@ -1497,12 +1569,13 @@ function drawUI() {
             wrapText(ctx, c.desc, b.x + b.w/2, b.y + 140, b.w - 40, 24);
             ctx.fillStyle = rColor; ctx.font = `bold ${16 * G_SCALE * 1.5}px monospace`;
             ctx.fillText("[ CLICK TO SELECT ]", b.x + b.w/2, b.y + b.h - 40);
-            
             if (canReroll) {
-                let btnW = 80; let btnH = 30; let btnX = b.x + b.w/2 - btnW/2; let btnY = b.y + b.h + 10;
+                let btnW = 80;
+                let btnH = 30; let btnX = b.x + b.w/2 - btnW/2; let btnY = b.y + b.h + 10;
                 ctx.fillStyle = "#333"; ctx.fillRect(btnX, btnY, btnW, btnH);
                 ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.strokeRect(btnX, btnY, btnW, btnH);
-                ctx.fillStyle = "#fff"; ctx.font = "bold 16px monospace";
+                ctx.fillStyle = "#fff";
+                ctx.font = "bold 16px monospace";
                 ctx.fillText("REROLL", btnX + btnW/2, btnY + 20);
             }
         });
@@ -1539,10 +1612,8 @@ function update() {
     let speed = mouse.down ? CONFIG.headSpeed * 0.15 : CONFIG.headSpeed;
     if (furyActive) speed *= 1.5;
     
-    if (webbedTimer > 0) {
-        speed *= 0.4; webbedTimer--;
-        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(head.x, head.y, 40 * VISUAL_SCALE, 0, Math.PI*2); ctx.stroke();
-    }
+    // Webbed Effect
+    // if (webbedTimer > 0) { speed *= 0.4; webbedTimer--; ... } 
 
     head.x += (mouse.x - head.x) * speed;
     head.y += (mouse.y - head.y) * speed;
@@ -1564,7 +1635,7 @@ function update() {
         if (leg.isStepping) {
             leg.stepProgress += CONFIG.legSpeed;
             if (leg.stepProgress >= 1) { leg.isStepping = false; leg.x = leg.targetX; leg.y = leg.targetY; }
-            else {
+             else {
                 let t = leg.stepProgress;
                 leg.x = leg.stepStartX + (leg.targetX - leg.stepStartX) * t; leg.y = leg.stepStartY + (leg.targetY - leg.stepStartY) * t;
                 leg.lift = Math.sin(t * Math.PI) * (45 * VISUAL_SCALE);
@@ -1575,17 +1646,20 @@ function update() {
     if(shieldCooldown > 0) shieldCooldown--;
     if(frame % 60 === 0) {
         if(dragonHP < dragonMaxHP && dragonRegen > 0) dragonHP = Math.min(dragonMaxHP, dragonHP + dragonRegen * 60);
-        
-        // Shield Regen Check
         if(shieldCooldown <= 0 && dragonShield < dragonMaxShield) {
             dragonShield = Math.min(dragonMaxShield, dragonShield + dragonShieldRegen * 60);
         }
     }
+
+    // PASSIVE METER REGEN
+    if (furyEnabled && !furyActive && furyMeter < 100) furyMeter += (0.05 + furyRegenPassive);
+    if (unlockedGhost && !ghostActive && ghostMeter < ghostMaxMeter) ghostMeter += (0.05 + ghostRegen);
     
+    // FURY ACTIVATION
     if (furyEnabled && furyMeter >= 100 && !furyActive) {
-        furyActive = true; furyTimer = furyDuration; shockwaveEnabled = true; 
+        furyActive = true;
+        furyTimer = furyDuration; shockwaveEnabled = true; 
         if (furyExplosion) {
-             // Hellfire Effect
              enemies.forEach(e => {
                  if (Math.hypot(e.x - head.x, e.y - head.y) < 500) e.takeDamage(200 * dragonAtk);
              });
@@ -1595,13 +1669,29 @@ function update() {
     if (furyActive) {
         furyTimer--;
         furyMeter = (furyTimer / furyDuration) * 100;
-        if (furyTimer <= 0) { furyActive = false; furyMeter = 0; }
+        if (furyTimer <= 0) { 
+            furyActive = false; furyMeter = 0; 
+            if(furyEndExplosion) {
+                enemies.forEach(e => {
+                     if (Math.hypot(e.x - head.x, e.y - head.y) < 600) e.takeDamage(500 * dragonAtk);
+                });
+                ctx.fillStyle = "rgba(255, 100, 0, 0.7)"; ctx.beginPath(); ctx.arc(head.x, head.y, 600, 0, Math.PI*2); ctx.fill();
+            }
+        }
     }
+
+    // GHOST METER DRAIN
+    if (ghostActive) {
+        ghostMeter -= 0.5;
+        if (ghostMeter <= 0) ghostActive = false;
+    }
+
     if (gamblerMode) {
         gamblerTimer++;
         if (gamblerTimer > 600) {
              gamblerTimer = 0;
-             dragonAtk = dragonAtk * (0.8 + Math.random() * 0.4);
+             dragonBaseAtk = dragonBaseAtk * (0.8 + Math.random() * 0.4);
+             updateStatsBySize(); // Re-apply modifiers
              damageNumbers.push(new FloatingText(head.x, head.y, "REROLL STATS", "#fff", 30));
         }
     }
@@ -1612,7 +1702,8 @@ function update() {
         else return; 
     }
     if (timeStopChance > 0 && !timeStopActive && frame % 600 === 0 && Math.random() < timeStopChance) {
-        timeStopActive = true; timeStopTimer = 120;
+        timeStopActive = true;
+        timeStopTimer = 120;
     }
 
     if(shockwaveEnabled) {
@@ -1625,19 +1716,21 @@ function update() {
                 let d = Math.hypot(center.x - e.x, center.y - e.y);
                 if(d < shockwaveRange) {
                     e.takeDamage(shockwaveDmg * dragonAtk);
-                    let a = Math.atan2(e.y - center.y, e.x - center.x);
-                    let push = 150 * G_SCALE * knockbackStr;
-                    e.x += Math.cos(a) * push; e.y += Math.sin(a) * push;
+                    // Bosses resist knockback
+                    if(!e.isBoss) {
+                        let a = Math.atan2(e.y - center.y, e.x - center.x);
+                        let push = 150 * G_SCALE * knockbackStr;
+                        e.x += Math.cos(a) * push; e.y += Math.sin(a) * push;
+                    }
                 }
             });
         }
     }
     
+    // WEAPON FIRE LOGIC
     if (mouse.down && orbLevel > 0) {
         let rateMod = fireRateMult;
         if (shieldAmpFire && dragonShield > 0) rateMod *= 1.15;
-
-        // UPDATED FIRE RATE LOGIC
         const fireRate = Math.max(1, (20 - (orbLevel * 2)) / rateMod);
         if (frame % Math.floor(fireRate) === 0) {
             projectiles.push(new Projectile(head.x, head.y, head.angle, orbStats.speed));
@@ -1651,22 +1744,28 @@ function update() {
     let effectiveFireRate = fireRateMult;
     if (shieldAmpFire && dragonShield > 0) effectiveFireRate *= 1.15;
 
+    // Summons Logic
     if (unlockedMissiles && frame % Math.floor(60 / effectiveFireRate) === 0) {
         for(let m=0; m<missileCount; m++) summons.push(new Missile(head.x, head.y));
     }
     if (unlockedMines && frame % 120 === 0) summons.push(new Mine(head.x, head.y));
     
-    if (unlockedStatic && frame % 30 === 0) {
-        let nearest = enemies[0]; let minD = Infinity;
-        enemies.forEach(e => {
-            let d = Math.hypot(e.x - head.x, e.y - head.y);
-            if(d < minD) { minD = d; nearest = e; }
-        });
-        if (nearest && minD < 300 * G_SCALE) {
-             nearest.takeDamage(20 * dragonAtk);
-             ctx.strokeStyle = "#ffff00"; ctx.beginPath(); ctx.moveTo(head.x, head.y); ctx.lineTo(nearest.x, nearest.y); ctx.stroke();
+    // Boomerangs
+    if (unlockedBoomerang && frame % Math.floor(90 / effectiveFireRate) === 0) {
+        for(let b=0; b<boomerangCount; b++) summons.push(new Boomerang(head.x, head.y, head.angle + (b*0.5) - ((boomerangCount-1)*0.25)));
+    }
+    // Grenades
+    if (unlockedGrenade && frame % Math.floor(120 / effectiveFireRate) === 0) {
+        for(let g=0; g<grenadeCount; g++) {
+             // Random target near mouse
+             let tx = mouse.x + (Math.random()-0.5)*200;
+             let ty = mouse.y + (Math.random()-0.5)*200;
+             summons.push(new Grenade(head.x, head.y, tx, ty));
         }
     }
+    
+    // UPDATE SAWS
+    saws.forEach(s => s.update(head));
 
     if (!mouse.down && dragonHP < dragonMaxHP && frame % 60 === 0) {
         dragonHP = Math.min(dragonMaxHP, dragonHP + 5);
@@ -1676,10 +1775,9 @@ function update() {
         e.update();
         if (e.hp <= 0) { 
             score += 10; gems.push(new ExpGem(e.x, e.y, e.xp)); 
-            if(furyEnabled && !furyActive) furyMeter = Math.min(100, furyMeter + (e.isBoss ? 20 : 2));
             enemies.splice(i, 1); 
         }
-     });
+      });
     
     damageNumbers = damageNumbers.filter(d => d.update());
     lightningEffects = lightningEffects.filter(l => l.update()); 
@@ -1700,11 +1798,6 @@ function draw() {
         ctx.beginPath();
         ctx.arc(spine[0].x, spine[0].y, 200 * VISUAL_SCALE * reactorRadiusMult, 0, Math.PI*2);
         ctx.strokeStyle = "rgba(255, 100, 0, 0.1)"; ctx.stroke();
-    }
-    if (auraIceSlow > 0) {
-        ctx.beginPath();
-        ctx.arc(spine[0].x, spine[0].y, 300 * VISUAL_SCALE, 0, Math.PI*2);
-        ctx.strokeStyle = "rgba(0, 255, 255, 0.1)"; ctx.stroke();
     }
 
     gems.forEach(g => g.draw());
@@ -1731,7 +1824,7 @@ function draw() {
         }
         if (i > 0) {
             ctx.lineWidth = i < 40 ? 5 * VISUAL_SCALE : 2 * VISUAL_SCALE;
-            ctx.strokeStyle = furyActive ? "#ff3300" : COLORS.accent;
+            ctx.strokeStyle = furyActive ? "#ff3300" : (ghostActive ? "#fff" : COLORS.accent);
             ctx.beginPath(); 
             ctx.moveTo(spine[i - 1].x, spine[i - 1].y); ctx.lineTo(s.x, s.y); ctx.stroke();
         }
@@ -1743,19 +1836,20 @@ function draw() {
         let hX = body.x + Math.cos(body.angle + hSide) * (25 * VISUAL_SCALE), hY = body.y + Math.sin(body.angle + hSide) * (25 * VISUAL_SCALE);
         let dx = leg.x - hX, dy = (leg.y - leg.lift) - hY;
         let dist = Math.min(Math.sqrt(dx * dx + dy * dy), CONFIG.upperLegLen + CONFIG.lowerLegLen - 2);
-        let a = Math.atan2(dy, dx), cos = (CONFIG.upperLegLen**2 + dist**2 - CONFIG.lowerLegLen**2) / (2 * CONFIG.upperLegLen * dist);
+         let a = Math.atan2(dy, dx), cos = (CONFIG.upperLegLen**2 + dist**2 - CONFIG.lowerLegLen**2) / (2 * CONFIG.upperLegLen * dist);
         let kneeA = leg.isLeft ? a + Math.acos(Math.max(-1, Math.min(1, cos))) : a - Math.acos(Math.max(-1, Math.min(1, cos)));
         let kX = hX + Math.cos(kneeA) * CONFIG.upperLegLen, kY = hY + Math.sin(kneeA) * CONFIG.upperLegLen;
         drawDragonBone(hX, hY, kX, kY, 8 * VISUAL_SCALE); drawDragonBone(kX, kY, leg.x, leg.y - leg.lift, 6 * VISUAL_SCALE);
     });
     drawDragonHead(spine[0]);
     
-    ctx.globalAlpha = 1.0; // Reset alpha for UI
+    ctx.globalAlpha = 1.0; 
     drawUI();
     if (!gameActive) {
         ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0,0,width,height);
         ctx.fillStyle = "white";
-        ctx.textAlign = "center"; ctx.font = "50px monospace";
+        ctx.textAlign = "center";
+        ctx.font = "50px monospace";
         ctx.fillText("GAME OVER", width/2, height/2);
         ctx.font = "20px monospace";
         ctx.fillText(`Max Level: ${level} | Wave: ${wave}`, width/2, height/2 + 50);
@@ -1800,5 +1894,9 @@ window.addEventListener('mousedown', () => {
     } else { mouse.down = true; }
 });
 window.addEventListener('mouseup', () => mouse.down = false);
+window.addEventListener('keydown', e => {
+    if (e.code === 'Space' && unlockedGhost && ghostMeter > 0 && !ghostActive) ghostActive = true;
+});
+
 function loop() { update(); draw(); requestAnimationFrame(loop); }
 init();
