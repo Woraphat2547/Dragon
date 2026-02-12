@@ -5,6 +5,9 @@ let width, height;
 let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2, down: false };
 let frame = 0;
 
+// --- GAME STATES ---
+let gameState = "MENU"; 
+
 // --- GLOBAL SCALING ---
 const G_SCALE = 0.5;
 
@@ -17,18 +20,11 @@ const COLORS = {
     common: "#b0b0b0", rare: "#0088ff", epic: "#9900ff", legendary: "#ffaa00", mythic: "#00ffcc"
 };
 
-// --- GAME STATE ---
-let dragonHP = 22000;
-let dragonMaxHP = 22000;
-let dragonShield = 0;
-let dragonMaxShield = 0;
-let dragonShieldRegen = 0;
-let shieldCooldown = 0;
-
-// --- CAPS & CONFIG ---
-const CAP_DEF = 0.5; 
-const CAP_DODGE = 0.30; 
-const CAP_CRIT_DMG = 4.0;
+// --- CONFIG CONSTANTS ---
+// Caps are used in logic, also displayed in UI
+let CAP_DEF = 0.50; // Dynamic, can be raised by Titan Scales
+const CAP_DODGE = 0.60; // Hard cap
+const CAP_CRIT_DMG = 5.0;
 const CAP_CRIT_CHANCE = 1.0;
 const BASE_VISUAL_SCALE = 0.6 * G_SCALE;
 
@@ -36,159 +32,42 @@ const MAX_LASER_MAIN = 12;
 const MAX_LASER_SIDE = 8;
 const MAX_LASER_REAR = 6;
 
-// --- STATS ---
-let dragonDefPct = 0;
-let dragonBaseAtk = 1; 
-let dragonAtk = 1;
-let dragonRegen = 0.2;
-let xpMultiplier = 1.0;
-let lifeSteal = 0;
-let dodgeChance = 0;
-let globalSlow = 1.0;
-let tailDmgMult = 1.0;
-let critChance = 0.05;
-let critDmg = 1.5;
-let thornsDmg = 0;
-let knockbackStr = 1.0;
-let executeThreshold = 0;
-let dmgTakenMult = 1.0;
-let laserDmgMult = 1.0;
-let fireRateMult = 1.0;
-let moveSpeedMult = 1.0; // New movement speed multiplier
+// --- GLOBAL VARIABLES ---
+let dragonHP, dragonMaxHP, dragonShield, dragonMaxShield, dragonShieldRegen, shieldCooldown;
+let dragonDefPct, dragonBaseAtk, dragonAtk, dragonRegen, xpMultiplier;
+let lifeSteal, dodgeChance, globalSlow, tailDmgMult, critChance, critDmg;
+let thornsDmg, knockbackStr, executeThreshold, dmgTakenMult;
+let laserDmgMult, fireRateMult, moveSpeedMult;
 
-// --- METERS & SPECIAL MECHANICS ---
-// 1. SHIELD
-let unlockedShield = false;
-let shieldExplode = false;
-let shieldAmpDmg = false;
-let shieldAmpFire = false;
-let shieldStunBreak = false;
+// Special Mechanics Vars
+let unlockedShield, shieldExplode, shieldAmpDmg, shieldAmpFire, shieldStunBreak;
+let unlockedFury, furyEnabled, furyMeter, furyActive, furyTimer, furyDuration;
+let furyExplosion, furyInvuln, furyRegenPassive, furyIgnition, furyEndExplosion;
+let unlockedGhost, ghostActive, ghostMeter, ghostMaxMeter, ghostRegen, ghostDmg, ghostPhaseShift, ghostEcto;
+let unlockedVoid, voidEnabled, voidMeter, voidActive, voidTimer, voidDuration, voidPullStrength, voidDmgAura;
+let unlockedHoly, holyEnabled, holyMeter, holyActive, holyTimer, holyDuration, holyHealTick, holySmiteChance;
+let overloadActive, overloadTimer;
 
-// 2. FURY
-let unlockedFury = false;
-let furyEnabled = false;
-let furyMeter = 0;
-let furyActive = false;
-let furyTimer = 0;
-let furyDuration = 600;
-let furyExplosion = false;
-let furyInvuln = false;
-let furyRegenPassive = 0; 
-let furyIgnition = false;
-let furyEndExplosion = false;
+// Weapons Vars
+let unlockedOrbs, unlockedShort, unlockedMid;
+let unlockedMissiles, unlockedMines, unlockedSaw, sawCount;
+let unlockedBoomerang, boomerangCount, unlockedGrenade, grenadeCount, grenadeCluster, grenadeNapalm;
 
-// 3. GHOST
-let unlockedGhost = false;
-let ghostActive = false; 
-let ghostMeter = 0; 
-let ghostMaxMeter = 100;
-let ghostRegen = 0;
-let ghostDmg = 0;
-let ghostPhaseShift = false;
-let ghostEcto = false;
+// Utils Vars
+let autoTurretCount, magnetRange, hasBloodLust, reviveCount, revivePenaltyStacks;
+let timeStopChance, timeStopActive, timeStopTimer, chainLightningChance, missileCount;
+let poisonChance, burnChance, freezeChance, weakChance, vulnChance;
+let tailTurret, discoMode, gamblerMode, gamblerTimer;
+let shockwaveEnabled, shockwaveTimer, shockwaveInterval, shockwaveRange, shockwaveDmg, shockwaveActiveFrame;
 
-// 4. VOID (New)
-let unlockedVoid = false;
-let voidEnabled = false;
-let voidMeter = 0;
-let voidActive = false;
-let voidTimer = 0;
-let voidDuration = 400; // shorter duration
-let voidPullStrength = 0;
-let voidDmgAura = 0;
+// Progress Vars
+let level, exp, expNext, wave, score, gameActive, isPaused, canReroll;
+let laserCount, laserWidthBase, laserRear, laserSide, laserType;
+let orbLevel, orbStats, shortLevel, shortStats, midLevel, midStats;
+let reactorDmg, reactorRadiusMult;
+let VISUAL_SCALE;
 
-// 5. HOLY (New)
-let unlockedHoly = false;
-let holyEnabled = false;
-let holyMeter = 0;
-let holyActive = false;
-let holyTimer = 0;
-let holyDuration = 500;
-let holyHealTick = 0;
-let holySmiteChance = 0;
-
-// OVERLOAD BUFF (Active when any meter triggers)
-let overloadActive = false;
-let overloadTimer = 0;
-
-// WEAPONS
-let unlockedOrbs = false; // "Orb" (Long Range)
-let unlockedShort = false; // "Spark" (Short Range, High Dmg)
-let unlockedMid = false; // "Bolt" (Mid Range)
-
-let unlockedMissiles = false;
-let unlockedMines = false;
-let unlockedSaw = false;
-let sawCount = 0;
-let unlockedBoomerang = false; 
-let boomerangCount = 0;
-let unlockedGrenade = false;
-let grenadeCount = 0;
-let grenadeCluster = false;
-let grenadeNapalm = false;
-
-// Utils
-let autoTurretCount = 0;
-let magnetRange = 1.0;
-let hasBloodLust = false;
-let reviveCount = 0;
-let revivePenaltyStacks = 0; // For Phoenix Soul penalty
-let timeStopChance = 0;
-let timeStopActive = false;
-let timeStopTimer = 0;
-let chainLightningChance = 0;
-let missileCount = 0;
-
-// Status Effect Chances
-let poisonChance = 0;
-let burnChance = 0;
-let freezeChance = 0;
-let weakChance = 0; 
-let vulnChance = 0;
-
-// Special Toggles
-let tailTurret = false;
-let discoMode = false;
-let gamblerMode = false;
-let gamblerTimer = 0;
-
-// Shockwave
-let shockwaveEnabled = false;
-let shockwaveTimer = 0;
-let shockwaveInterval = 180;
-let shockwaveRange = 300 * G_SCALE;
-let shockwaveDmg = 50;
-let shockwaveActiveFrame = 0;
-
-// Progression
-let level = 1;
-let exp = 0;
-let expNext = 550;
-let wave = 0;
-let score = 0;
-let gameActive = true;
-let isPaused = false;
-let canReroll = false;
-
-// Weapons Config
-let laserCount = 1;
-let laserWidthBase = 1;
-let laserRear = 0;
-let laserSide = 0;
-let laserType = 'normal'; // normal, plasma, void, shotgun
-
-// Projectile Stats
-let orbLevel = 0;
-let orbStats = { speed: 8 * G_SCALE, size: 10 * G_SCALE, pen: 1, damageMult: 1, count: 1 };
-let shortLevel = 0;
-let shortStats = { speed: 12 * G_SCALE, size: 6 * G_SCALE, pen: 0, damageMult: 2.5, count: 0, range: 250 * G_SCALE }; // High dmg, low range
-let midLevel = 0;
-let midStats = { speed: 10 * G_SCALE, size: 8 * G_SCALE, pen: 2, damageMult: 1.5, count: 0, range: 500 * G_SCALE };
-
-let reactorDmg = 0;
-let reactorRadiusMult = 1.0;
-
-// Entities
+// Entities Arrays
 let enemies = [];
 let projectiles = [];
 let saws = []; 
@@ -199,10 +78,83 @@ let cardBounds = [];
 let damageNumbers = [];
 let summons = []; 
 let lightningEffects = [];
+let explosions = []; // NEW: For grenade effects
 let myUpgrades = [];
+let spine = [];
+let legs = [];
+
+// Search Bar Var
+let librarySearch = "";
+
+// --- RESET FUNCTION ---
+function resetGameVariables() {
+    // Core Stats
+    dragonHP = 22000; dragonMaxHP = 22000;
+    dragonShield = 0; dragonMaxShield = 0; dragonShieldRegen = 0; shieldCooldown = 0;
+    
+    dragonDefPct = 0; CAP_DEF = 0.50; // Reset Cap
+    dragonBaseAtk = 1; dragonAtk = 1; dragonRegen = 0.2;
+    xpMultiplier = 1.0; lifeSteal = 0; dodgeChance = 0; globalSlow = 1.0;
+    tailDmgMult = 1.0; critChance = 0.05; critDmg = 1.5; thornsDmg = 0;
+    knockbackStr = 1.0; executeThreshold = 0; dmgTakenMult = 1.0;
+    laserDmgMult = 1.0; fireRateMult = 1.0; moveSpeedMult = 1.0;
+
+    // Meters & Flags
+    unlockedShield = false; shieldExplode = false; shieldAmpDmg = false; shieldAmpFire = false; shieldStunBreak = false;
+    
+    unlockedFury = false; furyEnabled = false; furyMeter = 0; furyActive = false; furyTimer = 0;
+    furyDuration = 600; furyExplosion = false; furyInvuln = false; furyRegenPassive = 0; furyIgnition = false; furyEndExplosion = false;
+    
+    unlockedGhost = false; ghostActive = false; ghostMeter = 0; ghostMaxMeter = 100;
+    ghostRegen = 0; ghostDmg = 0; ghostPhaseShift = false; ghostEcto = false;
+    
+    unlockedVoid = false; voidEnabled = false; voidMeter = 0; voidActive = false; voidTimer = 0;
+    voidDuration = 400; voidPullStrength = 0; voidDmgAura = 0;
+    
+    unlockedHoly = false; holyEnabled = false; holyMeter = 0; holyActive = false; holyTimer = 0;
+    holyDuration = 500; holyHealTick = 0; holySmiteChance = 0;
+    
+    overloadActive = false; overloadTimer = 0;
+
+    // Weapons
+    unlockedOrbs = false; unlockedShort = false; unlockedMid = false;
+    unlockedMissiles = false; unlockedMines = false; unlockedSaw = false; sawCount = 0;
+    unlockedBoomerang = false; boomerangCount = 0; unlockedGrenade = false; grenadeCount = 0;
+    grenadeCluster = false; grenadeNapalm = false;
+
+    // Utils
+    autoTurretCount = 0; magnetRange = 1.0; hasBloodLust = false; reviveCount = 0; revivePenaltyStacks = 0;
+    timeStopChance = 0; timeStopActive = false; timeStopTimer = 0; chainLightningChance = 0; missileCount = 0;
+    
+    poisonChance = 0; burnChance = 0; freezeChance = 0; weakChance = 0; vulnChance = 0;
+    tailTurret = false; discoMode = false; gamblerMode = false; gamblerTimer = 0;
+    
+    shockwaveEnabled = false; shockwaveTimer = 0; shockwaveInterval = 180;
+    shockwaveRange = 300 * G_SCALE; shockwaveDmg = 50; shockwaveActiveFrame = 0;
+
+    // Config & Progression
+    level = 1; exp = 0; expNext = 550; wave = 0; score = 0;
+    gameActive = true; isPaused = false; canReroll = false;
+    
+    laserCount = 1; laserWidthBase = 1; laserRear = 0; laserSide = 0; laserType = 'normal';
+    
+    orbLevel = 0; orbStats = { speed: 8 * G_SCALE, size: 10 * G_SCALE, pen: 1, damageMult: 1, count: 1 };
+    shortLevel = 0; shortStats = { speed: 12 * G_SCALE, size: 6 * G_SCALE, pen: 0, damageMult: 2.5, count: 0, range: 250 * G_SCALE }; 
+    midLevel = 0; midStats = { speed: 10 * G_SCALE, size: 8 * G_SCALE, pen: 2, damageMult: 1.5, count: 0, range: 500 * G_SCALE };
+    
+    reactorDmg = 0; reactorRadiusMult = 1.0;
+    VISUAL_SCALE = BASE_VISUAL_SCALE;
+
+    // Clear Arrays
+    enemies = []; projectiles = []; saws = []; enemyProjectiles = [];
+    gems = []; upgradeChoices = []; cardBounds = []; damageNumbers = [];
+    summons = []; lightningEffects = []; explosions = []; myUpgrades = [];
+    spine = []; legs = [];
+}
+
+resetGameVariables();
 
 // --- DRAGON SPECS ---
-let VISUAL_SCALE = BASE_VISUAL_SCALE;
 const CONFIG = {
     segmentCount: 85,
     segmentDist: 8 * VISUAL_SCALE,
@@ -215,8 +167,6 @@ const CONFIG = {
     wingFlapSpeed: 0.03,
     wingAttachment: 18
 };
-let spine = [];
-let legs = [];
 
 // --- HELPER FUNCTIONS ---
 function healPct(pct) {
@@ -238,7 +188,6 @@ function updateStatsBySize() {
     let sizeRatio = VISUAL_SCALE / BASE_VISUAL_SCALE;
     dragonAtk = dragonBaseAtk * Math.max(0.2, sizeRatio);
 }
-
 function updateDragonSize() {
     CONFIG.segmentDist = 8 * VISUAL_SCALE;
     CONFIG.maxRibWidth = 42 * VISUAL_SCALE;
@@ -249,7 +198,6 @@ function updateDragonSize() {
     CONFIG.headSpeed = 0.015 * (1 / Math.max(0.5, sizeRatio));
     updateStatsBySize();
 }
-
 function getNearestEnemy(x, y, maxDist = Infinity) {
     let nearest = null;
     let minD = Infinity;
@@ -268,14 +216,14 @@ const UPGRADES = [
     // --- COMMON (Tier 1) ---
     { r: 0, type: 'def', name: "Thick Skin", desc: "Max Health +10%", run: () => addMaxHP(0.1) },
     { r: 0, type: 'def', name: "Regen Cell", desc: "Regen +1 HP/frame", run: () => dragonRegen += 1 },
-    { r: 0, type: 'def', name: "Hard Scales", desc: "Defense +5% (Caps at 50%)", run: () => dragonDefPct = Math.min(CAP_DEF, dragonDefPct + 0.05) },
+    { r: 0, type: 'def', name: "Hard Scales", desc: "Defense +5% (Current Cap: " + (CAP_DEF*100) + "%)", run: () => dragonDefPct = Math.min(CAP_DEF, dragonDefPct + 0.05) },
     { r: 0, type: 'def', name: "Spikes", desc: "Thorns +20 DMG", run: () => thornsDmg += 20 },
     { r: 0, type: 'wep', name: "Extra Barrel", desc: "+1 Main Beam (-10% Dmg)", req: () => laserCount < MAX_LASER_MAIN, run: () => { laserCount++; laserDmgMult *= 0.90; } },
     { r: 0, type: 'wep', name: "Focus Lens", desc: "Beams are 10% wider", run: () => laserWidthBase += 0.1 },
     { r: 0, type: 'wep', name: "Sharpen", desc: "Base Attack +10%", run: () => dragonBaseAtk += 0.1 },
     { r: 0, type: 'util', name: "Magnetism", desc: "Pickup Range +25%", run: () => magnetRange *= 1.25 },
     { r: 0, type: 'util', name: "Learning", desc: "XP Gain +10%", run: () => xpMultiplier += 0.1 },
-    { r: 0, type: 'wep', name: "Sniper", desc: "Crit Chance +5%", run: () => critChance = Math.min(CAP_CRIT_CHANCE, critChance + 0.05) },
+    { r: 0, type: 'wep', name: "Sniper", desc: "Crit Chance +5% (Cap 100%)", run: () => critChance = Math.min(CAP_CRIT_CHANCE, critChance + 0.05) },
 
     // --- NEW PROJECTILES ---
     { r: 0, type: 'wep', name: "Spark (Short)", desc: "Add 2 Short Range High DMG Projectiles", req: () => !unlockedShort, run: () => { unlockedShort = true; shortStats.count += 2; } },
@@ -313,8 +261,8 @@ const UPGRADES = [
     // STATUS
     { r: 1, type: 'wep', name: "Poison Tip", desc: "10% Chance to Poison (3s)", run: () => poisonChance += 0.1 },
     { r: 1, type: 'wep', name: "Flame Tip", desc: "10% Chance to Burn (3s)", run: () => burnChance += 0.1 },
-    { r: 1, type: 'wep', name: "Crit Master", desc: "Crit Dmg +50%", run: () => critDmg = Math.min(CAP_CRIT_DMG, critDmg + 0.5) },
-    { r: 1, type: 'def', name: "Dodge Roll", desc: "Dodge +10% (Caps 30%)", run: () => dodgeChance = Math.min(CAP_DODGE, dodgeChance + 0.1) },
+    { r: 1, type: 'wep', name: "Crit Master", desc: "Crit Dmg +50% (Cap 500%)", run: () => critDmg = Math.min(CAP_CRIT_DMG, critDmg + 0.5) },
+    { r: 1, type: 'def', name: "Dodge Roll", desc: "Dodge +10% (Cap " + (CAP_DODGE*100) + "%)", run: () => dodgeChance = Math.min(CAP_DODGE, dodgeChance + 0.1) },
     { r: 1, type: 'wep', name: "Reactor", desc: "Burn nearby enemies", run: () => reactorDmg += 40 },
 
     // --- EPIC (Tier 3) ---
@@ -325,17 +273,17 @@ const UPGRADES = [
     { r: 3, type: 'abil', name: "Rage Quit", desc: "Explode when Fury ends", req: () => unlockedFury, run: () => furyEndExplosion = true },
 
     // GHOST TREE
-    { r: 2, type: 'abil', name: "Spectral Form", desc: "Unlock Ghost Meter (Dodge)", req: () => !unlockedGhost, run: () => { unlockedGhost = true; dodgeChance += 0.1; } },
+    { r: 2, type: 'abil', name: "Spectral Form", desc: "Unlock Ghost Meter (Dodge)", req: () => !unlockedGhost, run: () => { unlockedGhost = true; dodgeChance = Math.min(CAP_DODGE, dodgeChance + 0.1); } },
     { r: 2, type: 'abil', name: "Ethereal Flow", desc: "Ghost Meter Regen", req: () => unlockedGhost, run: () => ghostRegen += 0.05 },
     { r: 2, type: 'abil', name: "Ectoplasm", desc: "Slow enemies you pass thru", req: () => unlockedGhost, run: () => ghostEcto = true },
     { r: 2, type: 'abil', name: "Poltergeist", desc: "Dealing DMG charges Ghost Meter", req: () => unlockedGhost, run: () => ghostDmg += 0.5 },
 
-    // VOID TREE (New)
+    // VOID TREE
     { r: 2, type: 'abil', name: "Void Essence", desc: "Unlock Void Meter (Suck + Dmg)", req: () => !unlockedVoid, run: () => { unlockedVoid = true; voidEnabled = true; } },
     { r: 2, type: 'abil', name: "Event Horizon", desc: "Void Pull Strength ++", req: () => unlockedVoid, run: () => voidPullStrength += 0.05 },
     { r: 2, type: 'abil', name: "Null Zone", desc: "Void deals constant Aura Dmg", req: () => unlockedVoid, run: () => voidDmgAura += 50 },
 
-    // HOLY TREE (New)
+    // HOLY TREE
     { r: 2, type: 'abil', name: "Divine Light", desc: "Unlock Holy Meter (Heal + Smite)", req: () => !unlockedHoly, run: () => { unlockedHoly = true; holyEnabled = true; } },
     { r: 2, type: 'abil', name: "Purification", desc: "Holy active cleanses debuffs", req: () => unlockedHoly, run: () => holyHealTick += 2 },
     { r: 2, type: 'abil', name: "Wrath", desc: "Holy Active Smites Random Foes", req: () => unlockedHoly, run: () => holySmiteChance += 0.1 },
@@ -363,7 +311,7 @@ const UPGRADES = [
     // --- LEGENDARY (Tier 4) ---
     { r: 3, type: 'wep', name: "Void Cannon", desc: "0.05% MaxHP + Flat Dmg (Bosses take 90% less %HP Dmg)", run: () => laserType = 'void' },
     { r: 3, type: 'util', name: "Time Stop", desc: "5% Chance to Freeze Time", run: () => timeStopChance += 0.05 },
-    { r: 3, type: 'def', name: "Titan Scales", desc: "Defense Cap increased to 75% & +10% Def", run: () => dragonDefPct = Math.min(0.75, dragonDefPct + 0.1) },
+    { r: 3, type: 'def', name: "Titan Scales", desc: "Defense Cap 75% & +10% Def", run: () => { CAP_DEF = 0.75; dragonDefPct = Math.min(CAP_DEF, dragonDefPct + 0.1); } },
     { r: 3, type: 'wep', name: "Armageddon", desc: "Projectiles Explode", req: () => unlockedOrbs, run: () => orbStats.damageMult *= 1.5 },
     
     // PHOENIX SOUL REWORK
@@ -378,7 +326,7 @@ const UPGRADES = [
     { r: 3, type: 'abil', name: "Perma-Fury", desc: "Fury charges 2x faster", req: () => unlockedFury, run: () => furyDuration -= 100 },
     
     // --- MYTHIC (Tier 5) ---
-    { r: 5, type: 'god', name: "God Mode", desc: "All Stats +50%", run: () => { dragonBaseAtk*=1.5; addMaxHP(0.5); dragonDefPct+=0.1; } },
+    { r: 5, type: 'god', name: "God Mode", desc: "All Stats +50%", run: () => { dragonBaseAtk*=1.5; addMaxHP(0.5); dragonDefPct = Math.min(CAP_DEF, dragonDefPct + 0.1); } },
     { r: 5, type: 'god', name: "Evolution", desc: "Grow larger, HP x2", run: () => { VISUAL_SCALE *= 1.2; updateDragonSize(); addMaxHP(1.0); } },
     { r: 5, type: 'god', name: "Black Hole Sun", desc: "Reactor pulls with infinite mass force", run: () => reactorRadiusMult *= 2.5 },
 
@@ -422,6 +370,21 @@ class FloatingText {
     }
 }
 
+class ExplosionEffect {
+    constructor(x, y, radius, color) {
+        this.x = x; this.y = y; this.radius = radius; this.color = color;
+        this.life = 15;
+    }
+    update() { this.life--; return this.life > 0; }
+    draw() {
+        ctx.save();
+        ctx.globalAlpha = this.life / 15;
+        ctx.fillStyle = this.color;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+    }
+}
+
 class LightningEffect {
     constructor(x1, y1, x2, y2) {
         this.x1 = x1; this.y1 = y1; this.x2 = x2; this.y2 = y2;
@@ -459,7 +422,7 @@ class ExpGem {
             // Meter Gain on Kill
             if (furyEnabled && !furyActive) furyMeter = Math.min(100, furyMeter + 0.5);
             if (unlockedVoid && !voidActive) voidMeter = Math.min(200, voidMeter + 1);
-            if (unlockedHoly && !holyActive) holyMeter = Math.min(50, holyMeter + 0.25); // Slower holy charge
+            if (unlockedHoly && !holyActive) holyMeter = Math.min(50, holyMeter + 0.25); 
             
             if (exp >= expNext) levelUp();
             return true;
@@ -513,15 +476,12 @@ class Boomerang {
     constructor(x, y, angleOffset) {
         this.x = x; this.y = y;
         this.originX = x; this.originY = y;
-        
-        // Auto-Target Nearest
         let nearest = getNearestEnemy(x, y, 2000 * G_SCALE);
         let baseAngle = nearest ? Math.atan2(nearest.y - y, nearest.x - x) : spine[0].angle;
         this.angle = baseAngle + angleOffset;
-        
         this.speed = 12 * G_SCALE;
         this.dist = 0;
-        this.maxDist = 1200 * G_SCALE; // 2.5x Range boost (was ~600)
+        this.maxDist = 1200 * G_SCALE; 
         this.returning = false;
         this.life = 300;
     }
@@ -538,9 +498,8 @@ class Boomerang {
             let a = Math.atan2(head.y - this.y, head.x - this.x);
             this.x += Math.cos(a) * (this.speed * 1.5);
             this.y += Math.sin(a) * (this.speed * 1.5);
-            if(Math.hypot(head.x - this.x, head.y - this.y) < 50) return true; // Caught
+            if(Math.hypot(head.x - this.x, head.y - this.y) < 50) return true; 
         }
-        
         this.rot = (this.rot || 0) + 0.5;
         enemies.forEach(e => {
             if(Math.hypot(e.x - this.x, e.y - this.y) < 40 * G_SCALE) {
@@ -579,14 +538,15 @@ class Grenade {
         
         if(this.timer <= 0) {
             let radius = 200 * G_SCALE;
+            // Spawn Explosion Visual
+            explosions.push(new ExplosionEffect(this.x, this.y, radius, "rgba(255, 100, 255, 0.6)"));
+            
             enemies.forEach(e => {
                 if(Math.hypot(e.x - this.x, e.y - this.y) < radius) {
                     e.takeDamage(50 * dragonAtk);
                     if(grenadeNapalm) e.applyStatus('burn', 180, 10 * dragonAtk);
                 }
             });
-            ctx.fillStyle = "rgba(255, 100, 255, 0.6)";
-            ctx.beginPath(); ctx.arc(this.x, this.y, radius, 0, Math.PI*2); ctx.fill();
             
             if(grenadeCluster) {
                 enemies.forEach(e => {
@@ -594,7 +554,7 @@ class Grenade {
                         e.takeDamage(20 * dragonAtk);
                    }
                 });
-                ctx.strokeStyle = "orange"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(this.x, this.y, radius*1.5, 0, Math.PI*2); ctx.stroke();
+                explosions.push(new ExplosionEffect(this.x, this.y, radius*1.5, "rgba(255, 165, 0, 0.4)"));
             }
             return true;
         }
@@ -625,7 +585,7 @@ class Missile {
         for (let e of enemies) {
             if (Math.hypot(e.x - this.x, e.y - this.y) < e.radius + 10) {
                 e.takeDamage(100 * dragonAtk);
-                ctx.fillStyle = "orange"; ctx.beginPath(); ctx.arc(this.x, this.y, 50, 0, Math.PI*2); ctx.fill();
+                explosions.push(new ExplosionEffect(this.x, this.y, 50, "orange"));
                 return true;
             }
         }
@@ -638,13 +598,17 @@ class Missile {
 }
 
 class Mine {
-    constructor(x, y) { this.x = x; this.y = y; this.timer = 600; }
+    constructor(x, y) { 
+        this.x = x; 
+        this.y = y; 
+        this.timer = 600; 
+    }
     update() {
         this.timer--;
         for (let e of enemies) {
             if (Math.hypot(e.x - this.x, e.y - this.y) < e.radius + 60) { 
                 e.takeDamage(200 * dragonAtk);
-                ctx.fillStyle = "red"; ctx.beginPath(); ctx.arc(this.x, this.y, 120, 0, Math.PI*2); ctx.fill();
+                explosions.push(new ExplosionEffect(this.x, this.y, 120, "#cccccc"));
                 enemies.forEach(subE => {
                     if (Math.hypot(subE.x - this.x, subE.y - this.y) < 120) {
                         subE.takeDamage(200 * dragonAtk);
@@ -653,12 +617,17 @@ class Mine {
                 return true; 
             }
         }
-        ctx.fillStyle = (frame%20<10)?"red":"#500";
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, 10, 0, Math.PI*2); ctx.fill();
         return this.timer <= 0;
     }
-    draw() {}
+    draw() {
+        ctx.fillStyle = (frame % 20 < 10) ? "#cccccc" : "#888888";
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, 10 * G_SCALE, 0, Math.PI*2); 
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
 }
 
 class EnemyProjectile {
@@ -711,7 +680,6 @@ class EnemyProjectile {
 }
 
 // --- ENEMY DATA ---
-// REDUCED BODY DAMAGE (crashDmg) FOR SMALLER ENEMIES
 const ENEMY_DEFS = {
     'swarmer': { hp: 50, spd: 3.0, xp: 10, col: '#ff5500', r: 12, visual: 'insect', ai: 'swarm', crashDmg: 5 },
     'fly': { hp: 30, spd: 3.5, xp: 8, col: '#ccaa00', r: 10, visual: 'insect', ai: 'strafe', crashDmg: 5 },
@@ -752,6 +720,11 @@ class Enemy {
         const side = Math.random() > 0.5;
         this.x = side ? -100 : width + 100;
         this.y = Math.random() * height;
+        
+        if (gameState === "TEST" && mouse.down && mouse.x > 220) {
+            this.x = mouse.x; this.y = mouse.y;
+        }
+
         this.type = type;
         this.angle = 0;
         this.timer = Math.random() * 100;
@@ -771,7 +744,7 @@ class Enemy {
         this.ai = def.ai || (def.isBoss && def.ai ? def.ai : 'basic'); 
         this.crashDmg = def.crashDmg || 20;
         
-        // STATUS TIMERS (Frames)
+        // STATUS TIMERS
         this.poisonTimer = 0;
         this.burnTimer = 0;
         this.freezeTimer = 0;
@@ -806,13 +779,9 @@ class Enemy {
     update() {
         this.animFrame++;
         if (timeStopActive) return;
-        if (this.freezeTimer > 0) {
-            this.freezeTimer--;
-            if (frame % 20 === 0) ctx.fillStyle="cyan";
-            return;
-        }
 
-        // DoT Handling
+        // --- DoT & Status Update (FIXED ORDER) ---
+        // DoT must be applied BEFORE freeze check returns
         if (this.poisonTimer > 0) {
             if (this.poisonTimer % 60 === 0) this.takeDamage(Math.max(5, dragonAtk), true, 'poison');
             this.poisonTimer--;
@@ -825,6 +794,13 @@ class Enemy {
         if (this.vulnTimer > 0) this.vulnTimer--;
 
         if (this.eliteMod === 'REGEN' && frame % 60 === 0) this.hp = Math.min(this.maxHp, this.hp + this.maxHp*0.05);
+
+        // FREEZE CHECK
+        if (this.freezeTimer > 0) {
+            this.freezeTimer--;
+            if (frame % 20 === 0) ctx.fillStyle="cyan";
+            return; // Now it is safe to return as damage is done
+        }
 
         const head = spine[0];
         let targetX = head.x; let targetY = head.y;
@@ -978,8 +954,10 @@ class Enemy {
 
         this.x += mx * moveSpeed;
         this.y += my * moveSpeed;
-        if (dist > 2500 * G_SCALE) {
-            this.x += (targetX - this.x) * 0.05; this.y += (targetY - this.y) * 0.05;
+        
+        // FIXED: Despawn far enemies instead of pulling them
+        if (dist > 3000 * G_SCALE) {
+            this.hp = -100; // Kill gracefully to despawn
         }
 
         // Leg IK Animation
@@ -1188,8 +1166,7 @@ class Projectile {
                 if (discoMode && Math.random() < 0.2) e.applyStatus(['burn','poison','freeze','vuln'][Math.floor(Math.random()*4)], 180, this.dmg);
                 
                 if (this.explodes) {
-                    ctx.fillStyle = "rgba(255, 100, 0, 0.5)";
-                    ctx.beginPath(); ctx.arc(this.x, this.y, 100 * G_SCALE, 0, Math.PI*2); ctx.fill();
+                    explosions.push(new ExplosionEffect(this.x, this.y, 100 * G_SCALE, "rgba(255, 100, 0, 0.5)"));
                     enemies.forEach(subE => {
                         if (Math.hypot(subE.x - this.x, subE.y - this.y) < 100 * G_SCALE) {
                              subE.takeDamage(this.dmg * 0.5);
@@ -1230,16 +1207,14 @@ function takeDamage(amount) {
     }
 
     // Protection from One-Shot
-    // Max damage taken per hit is 30% of max HP unless it's a specific mechanic
     let maxHit = dragonMaxHP * 0.3;
     if (amount > maxHit) amount = maxHit;
 
     amount *= dmgTakenMult;
-    // Overload Buff Reduction
     if (overloadActive) amount *= 0.5;
 
     if (hasBloodLust) amount *= 1.3;
-    let mitigation = Math.min(dragonDefPct, 0.85); 
+    let mitigation = Math.min(dragonDefPct, CAP_DEF); 
     amount *= (1 - mitigation);
     
     // Shield Logic
@@ -1297,11 +1272,8 @@ function checkLaserHit(enemy, head, count, angleOffset) {
             
             // VOID CANNON LOGIC
             if (laserType === 'void') {
-                // 0.05% Max HP + Flat damage based on Attack.
                 let pctDmg = 0.0005; 
-                
                 if (enemy.isBoss) pctDmg *= 0.1;
-
                 let flatDmg = 3 * dragonAtk;
                 enemy.takeDamage((enemy.maxHp * pctDmg) + flatDmg);
             }
@@ -1314,7 +1286,6 @@ function checkLaserHit(enemy, head, count, angleOffset) {
                  else if (Math.random() < 0.05) enemy.applyStatus('freeze', 60, 0);
             }
             
-            // Apply Chance Statuses
             if (Math.random() < poisonChance) enemy.applyStatus('poison', 180, 0);
             if (Math.random() < burnChance) enemy.applyStatus('burn', 180, dmg * 0.5);
             if (Math.random() < freezeChance) enemy.applyStatus('freeze', 60, 0);
@@ -1382,6 +1353,9 @@ function selectUpgrade(index) {
 }
 
 function spawnWave() {
+    // STOP WAVES IN TEST ROOM
+    if (gameState === "TEST") return;
+
     wave++;
     const count = 10 + Math.floor(wave * 2.5);
     const types = [];
@@ -1434,10 +1408,18 @@ function drawLaserFan(head, count, angleOffset, colorOverride) {
 }
 
 function drawLasers(head) {
-    if (!mouse.down && autoTurretCount === 0) return;
+    // Only fire if mouse down (and not clicking test UI) OR auto turret
+    let firing = mouse.down;
+    
+    // In TEST mode, disable firing unless enabled
+    if (gameState === "TEST" && !testFireEnabled) firing = false;
+    if (gameState === "TEST" && mouse.x < 220) firing = false; // Don't fire through sidebar
+
+    if (!firing && autoTurretCount === 0) return;
+    
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    if (mouse.down) {
+    if (firing) {
         drawLaserFan(head, laserCount, 0);
         if(laserRear > 0) drawLaserFan(head, laserRear, Math.PI); 
         if(laserSide > 0) {
@@ -1571,23 +1553,313 @@ function drawDragonHead(s) {
     ctx.restore();
 }
 
+// --- MENUS & TEST UI ---
+
+let testUI = {
+    selectedEnemy: 'swarmer',
+    enemyTypes: Object.keys(ENEMY_DEFS),
+    enemyIndex: 0
+};
+let testFireEnabled = false; // Default OFF to make spawning easier
+let libraryScrollY = 0; // For scrolling
+
+// 1. MAIN MENU
+function drawMenu() {
+    ctx.fillStyle = "#000510";
+    ctx.fillRect(0, 0, width, height);
+
+    // Title
+    ctx.fillStyle = COLORS.glow;
+    ctx.font = "bold 80px monospace";
+    ctx.textAlign = "center";
+    ctx.shadowBlur = 30; ctx.shadowColor = COLORS.glow;
+    ctx.fillText("EVOLUTION", width / 2, height / 3);
+    ctx.shadowBlur = 0;
+
+    // Buttons
+    const btnW = 300, btnH = 80;
+    const centerX = width / 2 - btnW / 2;
+    const playY = height / 2;
+    const testY = height / 2 + 120;
+
+    // Draw PLAY
+    ctx.fillStyle = "#004400"; ctx.fillRect(centerX, playY, btnW, btnH);
+    ctx.strokeStyle = "#00ff00"; ctx.lineWidth = 4; ctx.strokeRect(centerX, playY, btnW, btnH);
+    ctx.fillStyle = "#fff"; ctx.font = "30px monospace";
+    ctx.fillText("PLAY GAME", width / 2, playY + 50);
+
+    // Draw TEST
+    ctx.fillStyle = "#444400"; ctx.fillRect(centerX, testY, btnW, btnH);
+    ctx.strokeStyle = "#ffff00"; ctx.lineWidth = 4; ctx.strokeRect(centerX, testY, btnW, btnH);
+    ctx.fillStyle = "#fff";
+    ctx.fillText("TEST ROOM", width / 2, testY + 50);
+}
+
+// 2. TEST UI OVERLAY
+function drawTestOverlay() {
+    // Sidebar background
+    const barW = 220;
+    ctx.fillStyle = "rgba(10, 10, 30, 0.9)";
+    ctx.fillRect(0, 0, barW, height);
+    ctx.strokeStyle = "#555"; ctx.strokeRect(0, 0, barW, height);
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 20px monospace";
+    ctx.fillText("TEST ROOM", 20, 40);
+
+    ctx.font = "14px monospace";
+    let y = 80;
+    
+    // BUTTON: LEVEL UP
+    drawTestBtn("Force Level Up", 10, y, 200, 30, "#004488");
+    y += 45;
+
+    // BUTTON: HEAL
+    drawTestBtn("Heal / Revive", 10, y, 200, 30, "#008844");
+    y += 45;
+
+    // BUTTON: KILL ALL
+    drawTestBtn("Kill All Enemies", 10, y, 200, 30, "#880000");
+    y += 45;
+    
+    // BUTTON: TOGGLE FIRE
+    let fireCol = testFireEnabled ? "#cc3300" : "#333";
+    let fireTxt = testFireEnabled ? "FIRE: ON" : "FIRE: OFF";
+    drawTestBtn(fireTxt, 10, y, 200, 30, fireCol);
+    y += 60;
+
+    // SPAWN SECTION
+    ctx.fillStyle = "#aaa"; ctx.fillText("SPAWNER:", 20, y); y+=20;
+    
+    // Type Selector
+    drawTestBtn("<", 10, y, 30, 30, "#444");
+    drawTestBtn(">", 180, y, 30, 30, "#444");
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+    ctx.fillText(testUI.selectedEnemy.toUpperCase(), 110, y + 20);
+    ctx.textAlign = "left";
+    y += 45;
+    
+    // Spawn Tip
+    ctx.fillStyle = "#888"; ctx.font = "12px monospace";
+    ctx.fillText("Click in world to spawn", 10, y);
+    y += 30;
+
+    // UPGRADES SECTION
+    ctx.fillStyle = "#aaa"; ctx.font = "14px monospace";
+    ctx.fillText("LIBRARY:", 20, y); y+=20;
+    drawTestBtn("Open All Upgrades", 10, y, 200, 40, "#5500aa");
+
+    // Exit Button
+    drawTestBtn("EXIT TO MENU", 10, height - 50, 200, 40, "#333");
+}
+
+function drawTestBtn(text, x, y, w, h, col) {
+    ctx.fillStyle = col;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = "#fff"; 
+    // If arrow, center text, else leftish
+    if (w < 40) { ctx.textAlign = "center"; ctx.fillText(text, x+w/2, y+h/1.5); }
+    else { ctx.textAlign = "center"; ctx.fillText(text, x+w/2, y+h/1.6); }
+    ctx.textAlign = "left";
+}
+
+// 3. LIBRARY UI (Grid of all upgrades)
+function drawLibrary() {
+    ctx.fillStyle = "rgba(0,0,0,0.95)"; ctx.fillRect(0,0,width,height);
+    
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#fff"; ctx.font = "30px monospace";
+    ctx.fillText("UPGRADE LIBRARY", width/2, 50);
+    ctx.font = "16px monospace";
+    ctx.fillText("Scroll to view. Click to add. Type to Search.", width/2, 80);
+
+    // Search Bar
+    ctx.fillStyle = "#333"; ctx.fillRect(width/2 - 150, 95, 300, 30);
+    ctx.strokeStyle = "#fff"; ctx.strokeRect(width/2 - 150, 95, 300, 30);
+    ctx.fillStyle = "#fff"; ctx.font = "20px monospace";
+    let displayText = librarySearch === "" ? "Search..." : librarySearch;
+    if (librarySearch === "") ctx.fillStyle = "#aaa";
+    ctx.fillText(displayText, width/2, 115);
+
+    const cols = 5;
+    const cardW = 200, cardH = 100;
+    const gap = 10;
+    const startX = (width - ((cardW+gap)*cols))/2;
+    
+    let x = startX;
+    let startY = 150 + libraryScrollY; // Apply Scroll
+    let y = startY;
+
+    // Scissor clip for scroll
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 130, width, height - 130);
+    ctx.clip();
+
+    // FILTER POOL BY SEARCH
+    let pool = UPGRADES.filter(u => u.name.toLowerCase().includes(librarySearch.toLowerCase()));
+
+    pool.forEach((u, i) => {
+        // Optimization: Don't draw if off screen
+        if (y > -100 && y < height) {
+            let rColor = COLORS.common;
+            if(u.r===1) rColor=COLORS.rare; if(u.r===2) rColor=COLORS.epic;
+            if(u.r===3) rColor=COLORS.legendary; if(u.r===4) rColor=COLORS.cursed;
+            if(u.r===5) rColor=COLORS.mythic;
+
+            ctx.strokeStyle = rColor;
+            ctx.strokeRect(x, y, cardW, cardH);
+            ctx.fillStyle = "#111"; ctx.fillRect(x, y, cardW, cardH);
+            
+            ctx.fillStyle = rColor; ctx.font = "bold 12px monospace";
+            ctx.textAlign = "center";
+            ctx.fillText(u.name, x + cardW/2, y + 20);
+            ctx.fillStyle = "#aaa"; ctx.font = "10px monospace";
+            wrapText(ctx, u.desc, x + cardW/2, y + 40, cardW - 10, 12);
+        }
+
+        x += cardW + gap;
+        if ((i+1) % cols === 0) { x = startX; y += cardH + gap; }
+    });
+    ctx.restore();
+
+    // Close button
+    ctx.fillStyle = "#f00"; ctx.fillRect(width-100, 20, 80, 40);
+    ctx.fillStyle = "#fff"; ctx.font = "bold 16px monospace";
+    ctx.fillText("CLOSE", width-60, 45);
+}
+
+// --- CLICK HANDLERS ---
+function handleMenuClick(mx, my) {
+    const btnW = 300, btnH = 80;
+    const centerX = width / 2 - btnW / 2;
+    const playY = height / 2;
+    const testY = height / 2 + 120;
+
+    // Play
+    if (mx >= centerX && mx <= centerX+btnW && my >= playY && my <= playY+btnH) {
+        startGame("PLAY");
+    }
+    // Test
+    if (mx >= centerX && mx <= centerX+btnW && my >= testY && my <= testY+btnH) {
+        startGame("TEST");
+    }
+}
+
+function handleTestClick(mx, my) {
+    if (gameState === "LIBRARY") {
+        // Check close
+        if (mx > width-100 && mx < width-20 && my > 20 && my < 60) {
+            gameState = "TEST"; return;
+        }
+        // Check cards (Adjust for Scroll & Search)
+        const cols = 5;
+        const cardW = 200, cardH = 100;
+        const gap = 10;
+        const startX = (width - ((cardW+gap)*cols))/2;
+        let x = startX;
+        let y = 150 + libraryScrollY; 
+        
+        // Use the same filtered pool as drawing
+        let pool = UPGRADES.filter(u => u.name.toLowerCase().includes(librarySearch.toLowerCase()));
+
+        for(let i=0; i<pool.length; i++) {
+            if (mx > x && mx < x+cardW && my > y && my < y+cardH) {
+                pool[i].run();
+                myUpgrades.push(pool[i]);
+                damageNumbers.push(new FloatingText(spine[0].x, spine[0].y, "ADDED: " + pool[i].name, "#fff", 30));
+                gameState = "TEST";
+                return;
+            }
+            x += cardW + gap;
+            if ((i+1) % cols === 0) { x = startX; y += cardH + gap; }
+        }
+        return;
+    }
+
+    // Sidebar clicks
+    if (mx > 220) return; // Not on sidebar
+
+    let y = 80;
+    // Level Up
+    if (my > y && my < y+30) { levelUp(true); isPaused = true; } // Force open card selection
+    y+=45;
+    // Heal
+    if (my > y && my < y+30) { dragonHP = dragonMaxHP; reviveCount = 2; }
+    y+=45;
+    // Kill All
+    if (my > y && my < y+30) { enemies.forEach(e => e.hp = -100); }
+    y+=45;
+    // Toggle Fire
+    if (my > y && my < y+30) { testFireEnabled = !testFireEnabled; }
+    y+=60; 
+    // Spawner Buttons
+    y+=20; // Label offset
+    if (my > y && my < y+30) {
+        if (mx < 40) { // Prev
+            testUI.enemyIndex--; 
+            if(testUI.enemyIndex < 0) testUI.enemyIndex = testUI.enemyTypes.length-1;
+        } else if (mx > 180) { // Next
+            testUI.enemyIndex++;
+            if(testUI.enemyIndex >= testUI.enemyTypes.length) testUI.enemyIndex = 0;
+        }
+        testUI.selectedEnemy = testUI.enemyTypes[testUI.enemyIndex];
+    }
+    y+=45; // Spawner label space
+    y+=30; // Tip space
+    y+=20; // Library label
+    // Open Library
+    if (my > y && my < y+40) { gameState = "LIBRARY"; libraryScrollY = 0; librarySearch = ""; }
+    
+    // Exit
+    if (my > height-50 && my < height-10) {
+        gameActive = false; gameState = "MENU";
+        resetGameVariables();
+        startGame("MENU"); // Actually just re-init menu view
+    }
+}
+
+function startGame(mode) {
+    gameState = mode;
+    resetGameVariables(); // FULL RESET
+    
+    if (mode === "MENU") return; // If just returning to menu, we are done
+    
+    // Re-init dragon spine
+    for (let i = 0; i < CONFIG.segmentCount; i++) spine.push({ x: width/2, y: height/2, angle: 0 });
+    legs = [
+        { anchorIndex: 18, isLeft: true, x: 0, y: 0 }, { anchorIndex: 18, isLeft: false, x: 0, y: 0 },
+        { anchorIndex: 50, isLeft: true, x: 0, y: 0 }, { anchorIndex: 50, isLeft: false, x: 0, y: 0 }
+    ];
+}
+
+// ---------------------
+
 function drawUI() {
-    canvas.style.cursor = isPaused ? "default" : "none";
+    canvas.style.cursor = (isPaused || gameState === "MENU" || (gameState === "TEST" && mouse.x < 220)) ? "default" : "none";
     ctx.fillStyle = "#111"; ctx.fillRect(0, 0, width, 10);
     ctx.fillStyle = COLORS.glow; ctx.fillRect(0, 0, width * (exp/expNext), 10);
     ctx.textAlign = "left"; ctx.fillStyle = "white";
     ctx.font = `bold ${16 * G_SCALE * 1.5}px monospace`;
-    ctx.fillText(`LVL ${level} | WAVE ${wave}`, 20, 35);
-    ctx.fillText(`ATK ${dragonAtk.toFixed(1)} | DEF ${(dragonDefPct*100).toFixed(0)}% (Cap 75%)`, 20, 55);
-    ctx.fillText(`CRIT ${(critChance*100).toFixed(0)}% (Cap 100%)`, 20, 75);
+    // Offset UI in test mode so sidebar doesn't cover it
+    let uiX = (gameState === "TEST") ? 230 : 20;
+
+    // --- UPDATED STATS UI WITH CORRECT CAPS ---
+    ctx.fillText(`LVL ${level} | WAVE ${wave}`, uiX, 35);
+    ctx.fillText(`ATK ${dragonAtk.toFixed(1)} | SPD ${moveSpeedMult.toFixed(1)}`, uiX, 55);
+    ctx.fillText(`DEF ${(dragonDefPct*100).toFixed(0)}% (Cap ${(CAP_DEF*100).toFixed(0)}%)`, uiX, 75);
+    ctx.fillText(`CRIT ${(critChance*100).toFixed(0)}% (Cap 100%)`, uiX, 95);
+    ctx.fillText(`DODGE ${(dodgeChance*100).toFixed(0)}% (Cap ${(CAP_DODGE*100).toFixed(0)}%)`, uiX, 115);
     
-    let yPos = 100;
+    let yPos = 140;
     const drawMeter = (name, val, color, active, activeColor) => {
         ctx.fillStyle = active ? activeColor : "#fff";
-        ctx.fillText(name, 20, yPos);
-        ctx.fillStyle = "#111"; ctx.fillRect(80, yPos-12, 100, 12);
-        ctx.fillStyle = active ? activeColor : color; ctx.fillRect(80, yPos-12, val, 12);
-        ctx.strokeStyle = "#fff"; ctx.strokeRect(80, yPos-12, 100, 12);
+        ctx.fillText(name, uiX, yPos);
+        ctx.fillStyle = "#111"; ctx.fillRect(uiX + 60, yPos-12, 100, 12);
+        ctx.fillStyle = active ? activeColor : color; ctx.fillRect(uiX + 60, yPos-12, val, 12);
+        ctx.strokeStyle = "#fff"; ctx.strokeRect(uiX + 60, yPos-12, 100, 12);
         yPos += 20;
     };
 
@@ -1597,10 +1869,10 @@ function drawUI() {
     if (unlockedHoly) drawMeter("HOLY", holyMeter, "#860", holyActive, "#fd0");
 
     if (overloadActive) {
-        ctx.fillStyle = "#ff00ff"; ctx.fillText(">> OVERLOAD <<", 200, 100);
+        ctx.fillStyle = "#ff00ff"; ctx.fillText(">> OVERLOAD <<", uiX + 180, 100);
     }
     
-    if (reviveCount > 0) ctx.fillText(`REVIVES: ${reviveCount}`, 20, yPos + 20);
+    if (reviveCount > 0) ctx.fillText(`REVIVES: ${reviveCount}`, uiX, yPos + 20);
 
     let bosses = enemies.filter(e => e.isBoss);
     if (bosses.length > 0) {
@@ -1698,19 +1970,30 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
 
 // --- MAIN LOOP ---
 function update() {
+    if (gameState === "MENU") return;
+    if (gameState === "LIBRARY") return;
+
     if (!gameActive || isPaused) return;
     frame++;
     if (enemies.length === 0) spawnWave();
 
     let head = spine[0];
-    let speed = mouse.down ? CONFIG.headSpeed * 0.15 : CONFIG.headSpeed;
-    if (furyActive) speed *= 1.5;
-    if (overloadActive) speed *= 2.0; // Overload speed buff
-    speed *= moveSpeedMult;
+    
+    // In Test Mode, don't move if mouse is over sidebar
+    let shouldMove = true;
+    if (gameState === "TEST" && mouse.x < 220) shouldMove = false;
 
-    head.x += (mouse.x - head.x) * speed;
-    head.y += (mouse.y - head.y) * speed;
-    head.angle = Math.atan2(mouse.y - head.y, mouse.x - head.x);
+    if (shouldMove) {
+        let speed = mouse.down ? CONFIG.headSpeed * 0.15 : CONFIG.headSpeed;
+        if (furyActive) speed *= 1.5;
+        if (overloadActive) speed *= 2.0; 
+        speed *= moveSpeedMult;
+
+        head.x += (mouse.x - head.x) * speed;
+        head.y += (mouse.y - head.y) * speed;
+        head.angle = Math.atan2(mouse.y - head.y, mouse.x - head.x);
+    }
+
     for (let i=1; i<spine.length; i++) {
         let p = spine[i-1], c = spine[i];
         let a = Math.atan2(p.y - c.y, p.x - c.x);
@@ -1766,8 +2049,6 @@ function update() {
         }
     }
 
-    // GHOST (Activated by Space or Auto? Current code says Space. Let's make it auto for consistency with prompt desire "toggle logic")
-    // Wait, prompt asked "Can they toggle at one time?" I'll keep spacebar for Ghost manual, others auto.
     if (unlockedGhost && !ghostActive && ghostMeter < ghostMaxMeter) ghostMeter += (0.05 + ghostRegen);
     if (ghostActive) {
         ghostMeter -= 0.5;
@@ -1788,7 +2069,6 @@ function update() {
         holyActive = true; holyTimer = holyDuration; anyMeterActivated = true;
         // Cleanse
         if (holyHealTick > 0) { 
-            // Heal flat amount initially
             dragonHP = Math.min(dragonMaxHP, dragonHP + 250); 
         }
     }
@@ -1858,8 +2138,16 @@ function update() {
     let effectiveFireRate = fireRateMult;
     if (shieldAmpFire && dragonShield > 0) effectiveFireRate *= 1.15;
 
+    // Check firing conditions
+    // In Test Mode: Only fire if testFireEnabled is TRUE AND not clicking sidebar
+    let firing = mouse.down;
+    if (gameState === "TEST") {
+        if (!testFireEnabled) firing = false;
+        if (mouse.x < 220) firing = false; 
+    }
+
     // ORBS (Long Range)
-    if (mouse.down && orbLevel > 0) {
+    if (firing && orbLevel > 0) {
         const fireRate = Math.max(1, (20 - (orbLevel * 2)) / effectiveFireRate);
         if (frame % Math.floor(fireRate) === 0) {
             projectiles.push(new Projectile(head.x, head.y, head.angle, orbStats, 'orb'));
@@ -1871,7 +2159,7 @@ function update() {
     }
 
     // SPARKS (Short Range)
-    if (mouse.down && unlockedShort) {
+    if (firing && unlockedShort) {
         const fireRate = Math.max(1, 15 / effectiveFireRate); // Fast
         if (frame % Math.floor(fireRate) === 0) {
             for(let i=0; i<shortStats.count; i++) {
@@ -1882,7 +2170,7 @@ function update() {
     }
 
     // BOLTS (Mid Range)
-    if (mouse.down && unlockedMid) {
+    if (firing && unlockedMid) {
         const fireRate = Math.max(1, 45 / effectiveFireRate); // Slow
         if (frame % Math.floor(fireRate) === 0) {
             for(let i=0; i<midStats.count; i++) {
@@ -1906,6 +2194,8 @@ function update() {
         for(let g=0; g<grenadeCount; g++) {
              let tx = mouse.x + (Math.random()-0.5)*200;
              let ty = mouse.y + (Math.random()-0.5)*200;
+             // Ensure grenades don't target sidebar in test
+             if (gameState==="TEST" && tx < 220) tx = 250;
              summons.push(new Grenade(head.x, head.y, tx, ty));
         }
     }
@@ -1918,12 +2208,16 @@ function update() {
     enemies.forEach((e, i) => {
         e.update();
         if (e.hp <= 0) { 
-            score += 10; gems.push(new ExpGem(e.x, e.y, e.xp)); 
+            // Graceful despawn vs Kill
+            if (e.hp !== -100) { // -100 is despawn code
+                score += 10; gems.push(new ExpGem(e.x, e.y, e.xp)); 
+            }
             enemies.splice(i, 1); 
         }
       });
     damageNumbers = damageNumbers.filter(d => d.update());
     lightningEffects = lightningEffects.filter(l => l.update()); 
+    explosions = explosions.filter(e => e.update());
     gems = gems.filter(g => !g.update());
     projectiles = projectiles.filter(p => !p.update());
     enemyProjectiles = enemyProjectiles.filter(p => !p.update());
@@ -1932,6 +2226,16 @@ function update() {
 }
 
 function draw() {
+    if (gameState === "MENU") {
+        drawMenu();
+        return;
+    }
+    
+    if (gameState === "LIBRARY") {
+        drawLibrary();
+        return;
+    }
+
     ctx.fillStyle = timeStopActive ? "#111122" : "#00020a";
     ctx.fillRect(0, 0, width, height);
     
@@ -1948,6 +2252,7 @@ function draw() {
     gems.forEach(g => g.draw());
     summons.forEach(s => s.draw());
     lightningEffects.forEach(l => l.draw()); 
+    explosions.forEach(e => e.draw()); // Draw Explosions
     projectiles.forEach(p => p.draw());
     enemyProjectiles.forEach(p => p.draw());
     enemies.forEach(e => e.draw());
@@ -1989,6 +2294,11 @@ function draw() {
     
     ctx.globalAlpha = 1.0; 
     drawUI();
+    
+    if (gameState === "TEST") {
+        drawTestOverlay();
+    }
+
     if (!gameActive) {
         ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0,0,width,height);
         ctx.fillStyle = "white";
@@ -1997,25 +2307,51 @@ function draw() {
         ctx.fillText("GAME OVER", width/2, height/2);
         ctx.font = "20px monospace";
         ctx.fillText(`Max Level: ${level} | Wave: ${wave}`, width/2, height/2 + 50);
-        ctx.fillText("Refresh to restart", width/2, height/2 + 80);
+        
+        // Draw EXIT Button
+        ctx.fillStyle = "#333"; ctx.fillRect(width/2 - 100, height/2 + 80, 200, 50);
+        ctx.strokeStyle = "#fff"; ctx.strokeRect(width/2 - 100, height/2 + 80, 200, 50);
+        ctx.fillStyle = "#fff"; ctx.fillText("EXIT TO MENU", width/2, height/2 + 110);
     }
 }
 
 function init() {
     resize();
-    spine = [];
-    for (let i = 0; i < CONFIG.segmentCount; i++) spine.push({ x: mouse.x, y: mouse.y, angle: 0 });
-    legs = [
-        { anchorIndex: 18, isLeft: true, x: 0, y: 0 }, { anchorIndex: 18, isLeft: false, x: 0, y: 0 },
-        { anchorIndex: 50, isLeft: true, x: 0, y: 0 }, { anchorIndex: 50, isLeft: false, x: 0, y: 0 }
-    ];
+    // Spine init handled in startGame now
     loop();
 }
 
 function resize() { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
 window.addEventListener('resize', resize);
 window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+window.addEventListener('wheel', e => {
+    if (gameState === "LIBRARY") {
+        libraryScrollY -= e.deltaY;
+        if (libraryScrollY > 0) libraryScrollY = 0; // Cap top
+        // Simple bottom cap (approx)
+        let maxScroll = -(Math.ceil(UPGRADES.length / 5) * 110 - (height - 200));
+        if (maxScroll > 0) maxScroll = 0;
+        if (libraryScrollY < maxScroll) libraryScrollY = maxScroll;
+    }
+});
+
 window.addEventListener('mousedown', () => {
+    
+    // Menu Click
+    if (gameState === "MENU") {
+        handleMenuClick(mouse.x, mouse.y);
+        return;
+    }
+    
+    // Game Over Exit Click
+    if (!gameActive) {
+         if (mouse.x > width/2 - 100 && mouse.x < width/2 + 100 && mouse.y > height/2 + 80 && mouse.y < height/2 + 130) {
+             gameState = "MENU";
+             resetGameVariables();
+         }
+         return;
+    }
+
     if (isPaused) {
         if (canReroll) {
             let rerolled = false;
@@ -2035,11 +2371,40 @@ window.addEventListener('mousedown', () => {
         cardBounds.forEach((b, i) => {
             if (mouse.x > b.x && mouse.x < b.x + b.w && mouse.y > b.y && mouse.y < b.y + b.h) selectUpgrade(i);
         });
-    } else { mouse.down = true; }
+    } else { 
+        if (gameState === "TEST" || gameState === "LIBRARY") {
+            // If in TEST mode, split logic between UI click and World spawn
+            if (gameState === "TEST") {
+                if (mouse.x < 220) {
+                    handleTestClick(mouse.x, mouse.y);
+                } else {
+                    // Clicked in World -> Spawn
+                    enemies.push(new Enemy(testUI.selectedEnemy, wave));
+                }
+            } else {
+                // Library Mode
+                handleTestClick(mouse.x, mouse.y);
+            }
+        }
+        mouse.down = true; 
+    }
 });
 window.addEventListener('mouseup', () => mouse.down = false);
 window.addEventListener('keydown', e => {
     if (e.code === 'Space' && unlockedGhost && ghostMeter > 0 && !ghostActive) ghostActive = true;
+    if (e.code === 'Escape' && gameState !== "MENU") { 
+        gameActive = false; gameState = "MENU"; 
+        resetGameVariables();
+    }
+
+    // Library Search Typing
+    if (gameState === "LIBRARY") {
+        if (e.key === "Backspace") {
+            librarySearch = librarySearch.slice(0, -1);
+        } else if (e.key.length === 1 && librarySearch.length < 20) {
+            librarySearch += e.key;
+        }
+    }
 });
 function loop() { update(); draw(); requestAnimationFrame(loop); }
 init();
